@@ -16,7 +16,7 @@ export const ensureApiKey = async () => {
     const hasKey = await (window as any).aistudio.hasSelectedApiKey();
     if (!hasKey) {
       await (window as any).aistudio.openSelectKey();
-      // Assume success as per race condition guidelines
+      // Proceed assuming the user will select or has selected a valid key
       return true;
     }
   }
@@ -28,12 +28,13 @@ export const ensureApiKey = async () => {
  * Specifically handles the 404 "Requested entity was not found" error.
  */
 export const handleGeminiError = async (err: any) => {
-  const errorMessage = err?.message || String(err);
+  const errorMessage = err?.message || (typeof err === 'object' ? JSON.stringify(err) : String(err));
   console.error("Gemini API Error:", errorMessage);
 
   const isNotFound = errorMessage.includes("Requested entity was not found") || 
                      errorMessage.includes("404") || 
-                     err?.status === "NOT_FOUND";
+                     err?.status === "NOT_FOUND" ||
+                     err?.code === 404;
 
   if (isNotFound && typeof (window as any).aistudio !== 'undefined') {
     console.warn("Model or Key not found. Re-prompting user for API Key selection...");
@@ -78,7 +79,7 @@ export const analyzeImageAndGhostwrite = async (base64: string, mimeType: string
       contents: {
         parts: [
           { inlineData: { data: base64, mimeType } },
-          { text: `Analyze this image in the style of ${genre}. Respond in ${language}. 
+          { text: `Analyze this image in the style of ${genre}. Respond in the language: ${language}. 
                   Provide a JSON object with: openingParagraph, mood, sceneAnalysis, characters (list), worldBuilding, sensoryDetails (list), plotTwists (list).` }
         ]
       },
