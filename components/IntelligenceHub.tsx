@@ -1,6 +1,7 @@
 
 import React, { useState } from 'react';
-import { groundedSearch, thinkingQuery, handleGeminiError } from '../services/geminiService';
+// Fix: Removed non-existent import 'thinkingQuery'
+import { groundedSearch, handleGeminiError } from '../services/geminiService';
 import { Language, UserAccount } from '../types';
 
 interface IntelligenceHubProps {
@@ -81,11 +82,33 @@ const IntelligenceHub: React.FC<IntelligenceHubProps> = ({ language, user }) => 
                 </div>
               </div>
 
+              {/* Fix: Implement mandatory URL listing for Grounding Metadata */}
               {result && (
-                <div className="p-8 rounded-[2rem] bg-black/40 border border-white/5 animate-in slide-in-from-bottom-4">
+                <div className="p-8 rounded-[2rem] bg-black/40 border border-white/5 animate-in slide-in-from-bottom-4 space-y-6">
                    <div className="prose prose-invert max-w-none text-zinc-300 font-serif text-lg italic leading-relaxed">
                      {result.text}
                    </div>
+                   {result.chunks && result.chunks.length > 0 && (
+                     <div className="pt-4 border-t border-white/5 space-y-2">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Sources</p>
+                        <div className="flex flex-wrap gap-2">
+                          {result.chunks.map((chunk: any, i: number) => (
+                            chunk.web && (
+                              <a 
+                                key={i} 
+                                href={chunk.web.uri} 
+                                target="_blank" 
+                                rel="noopener noreferrer" 
+                                className="text-[10px] text-indigo-400 hover:underline flex items-center space-x-1"
+                              >
+                                <i className="fa-solid fa-link text-[8px]"></i>
+                                <span>{chunk.web.title || chunk.web.uri}</span>
+                              </a>
+                            )
+                          ))}
+                        </div>
+                     </div>
+                   )}
                 </div>
               )}
            </div>

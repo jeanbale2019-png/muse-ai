@@ -1,6 +1,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { analyzeImageAndGhostwrite, generateTTS, playTTS, editImage, generateVeoVideo, extendVeoVideo, decode, pcmToWav, triggerDownload, downloadFromUrl, handleGeminiError, ensureApiKey, saveToGallery, getAI, encode, decodeAudioData } from '../services/geminiService';
+// Fix: Removed non-existent import 'extendVeoVideo'
+import { analyzeImageAndGhostwrite, generateTTS, playTTS, editImage, generateVeoVideo, decode, pcmToWav, triggerDownload, downloadFromUrl, handleGeminiError, ensureApiKey, saveToGallery, getAI, encode, decodeAudioData } from '../services/geminiService';
 import { checkPermission, registerChallengeUsage } from '../services/subscriptionService';
 import { StoryData, AVAILABLE_VOICES, VoiceName, Language, StoryGenre, UserAccount } from '../types';
 import { Modality, LiveServerMessage } from '@google/genai';

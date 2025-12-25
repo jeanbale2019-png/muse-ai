@@ -1,40 +1,49 @@
 
-
 import { GoogleGenAI, Type, Modality, GenerateContentResponse } from "@google/genai";
 import { StoryData, ConversationSuggestion, VoiceName, AspectRatio, ImageSize, Language, StoryGenre } from "../types";
 
+/**
+ * Creates a fresh instance of the Gemini AI client.
+ * Using a function ensures we always use the most up-to-date API key.
+ */
 export const getAI = () => new GoogleGenAI({ apiKey: process.env.API_KEY as string });
 
+/**
+ * Checks if an API key has been selected. Mandatory for high-tier models.
+ */
 export const ensureApiKey = async () => {
   if (typeof (window as any).aistudio !== 'undefined') {
     const hasKey = await (window as any).aistudio.hasSelectedApiKey();
     if (!hasKey) {
-      try {
-        await (window as any).aistudio.openSelectKey();
-        return true;
-      } catch (e) {
-        console.error("Failed to open key selection dialog", e);
-      }
+      await (window as any).aistudio.openSelectKey();
+      // Assume success as per race condition guidelines
+      return true;
     }
   }
   return true;
 };
 
+/**
+ * Global error handler for Gemini API calls.
+ * Specifically handles the 404 "Requested entity was not found" error.
+ */
 export const handleGeminiError = async (err: any) => {
-  let errorMessage = err?.message || (typeof err === 'object' ? JSON.stringify(err) : String(err));
+  const errorMessage = err?.message || String(err);
   console.error("Gemini API Error:", errorMessage);
 
-  const isNotFoundError = errorMessage.includes("Requested entity was not found") || errorMessage.includes("404");
-  if (isNotFoundError && typeof (window as any).aistudio !== 'undefined') {
-    try {
-      await (window as any).aistudio.openSelectKey();
-      return true; 
-    } catch (e) {}
+  const isNotFound = errorMessage.includes("Requested entity was not found") || 
+                     errorMessage.includes("404") || 
+                     err?.status === "NOT_FOUND";
+
+  if (isNotFound && typeof (window as any).aistudio !== 'undefined') {
+    console.warn("Model or Key not found. Re-prompting user for API Key selection...");
+    await (window as any).aistudio.openSelectKey();
+    return true; // Indicates we should retry the original operation
   }
   return false;
 };
 
-// --- Audio Utilities ---
+// --- Audio Encoding/Decoding ---
 export function decode(base64: string) {
   const binaryString = atob(base64);
   const bytes = new Uint8Array(binaryString.length);
@@ -59,56 +68,60 @@ export async function decodeAudioData(data: Uint8Array, ctx: AudioContext, sampl
   return buffer;
 }
 
+// --- Content Generation ---
+
 export const analyzeImageAndGhostwrite = async (base64: string, mimeType: string, language: Language = 'fr-FR', genre: StoryGenre = 'fantasy'): Promise<StoryData> => {
   const ai = getAI();
-  const langName = language === 'ln-CD' ? 'Lingala' : language === 'sw-KE' ? 'Swahili' : language;
-  
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
-    contents: {
-      parts: [
-        { inlineData: { data: base64, mimeType } },
-        { text: `SYSTEM INSTRUCTION: You are a creative writer. Analyze and respond EXCLUSIVELY in the language: ${langName}. 
-                The target genre is: ${genre}. 
-                Return the response as a JSON object with: 
-                "openingParagraph" (the hook), "mood", "sceneAnalysis", "characters" (array), "worldBuilding", "sensoryDetails" (array), "plotTwists" (array).` }
-      ]
-    },
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          openingParagraph: { type: Type.STRING },
-          mood: { type: Type.STRING },
-          sceneAnalysis: { type: Type.STRING },
-          characters: { type: Type.ARRAY, items: { type: Type.STRING } },
-          worldBuilding: { type: Type.STRING },
-          sensoryDetails: { type: Type.ARRAY, items: { type: Type.STRING } },
-          plotTwists: { type: Type.ARRAY, items: { type: Type.STRING } },
-        },
-        required: ["openingParagraph", "mood", "sceneAnalysis", "characters", "worldBuilding", "sensoryDetails", "plotTwists"]
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: {
+        parts: [
+          { inlineData: { data: base64, mimeType } },
+          { text: `Analyze this image in the style of ${genre}. Respond in ${language}. 
+                  Provide a JSON object with: openingParagraph, mood, sceneAnalysis, characters (list), worldBuilding, sensoryDetails (list), plotTwists (list).` }
+        ]
+      },
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            openingParagraph: { type: Type.STRING },
+            mood: { type: Type.STRING },
+            sceneAnalysis: { type: Type.STRING },
+            characters: { type: Type.ARRAY, items: { type: Type.STRING } },
+            worldBuilding: { type: Type.STRING },
+            sensoryDetails: { type: Type.ARRAY, items: { type: Type.STRING } },
+            plotTwists: { type: Type.ARRAY, items: { type: Type.STRING } },
+          },
+          required: ["openingParagraph", "mood", "sceneAnalysis", "characters", "worldBuilding", "sensoryDetails", "plotTwists"]
+        }
       }
-    }
-  });
-  return JSON.parse(response.text || '{}');
+    });
+    return JSON.parse(response.text || '{}');
+  } catch (err) {
+    if (await handleGeminiError(err)) return analyzeImageAndGhostwrite(base64, mimeType, language, genre);
+    throw err;
+  }
 };
 
 export const generateTTS = async (text: string, voiceName: VoiceName): Promise<string | null> => {
   const ai = getAI();
-  const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash-preview-tts",
-    contents: [{ parts: [{ text }] }],
-    config: {
-      responseModalities: [Modality.AUDIO],
-      speechConfig: {
-        voiceConfig: {
-          prebuiltVoiceConfig: { voiceName },
-        },
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash-preview-tts",
+      contents: [{ parts: [{ text }] }],
+      config: {
+        responseModalities: [Modality.AUDIO],
+        speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName } } },
       },
-    },
-  });
-  return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || null;
+    });
+    return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || null;
+  } catch (err) {
+    await handleGeminiError(err);
+    return null;
+  }
 };
 
 export const playTTS = async (base64: string) => {
@@ -120,72 +133,150 @@ export const playTTS = async (base64: string) => {
   source.start();
 };
 
-export const chatWithGemini = async (history: { role: 'user' | 'model'; text: string }[], message: string, language: Language) => {
+export const generateProImage = async (prompt: string, aspectRatio: AspectRatio, imageSize: ImageSize) => {
+  await ensureApiKey();
   const ai = getAI();
-  const langName = language === 'ln-CD' ? 'Lingala' : language === 'sw-KE' ? 'Swahili' : language;
-  const chat = ai.chats.create({
-    model: 'gemini-3-flash-preview',
-    config: {
-      systemInstruction: `SYSTEM INSTRUCTION: You are a professional assistant. You MUST respond exclusively in ${langName}.`,
-    },
-  });
-  const response = await chat.sendMessage({ message });
-  return response.text;
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-pro-image-preview',
+      contents: { parts: [{ text: prompt }] },
+      config: { imageConfig: { aspectRatio: aspectRatio as any, imageSize } },
+    });
+    for (const part of response.candidates?.[0]?.content?.parts || []) {
+      if (part.inlineData) return `data:image/png;base64,${part.inlineData.data}`;
+    }
+  } catch (err) {
+    if (await handleGeminiError(err)) return generateProImage(prompt, aspectRatio, imageSize);
+  }
+  return null;
+};
+
+export const generateVeoVideo = async (prompt: string, imageBase64?: string, mimeType?: string, aspectRatio: "16:9" | "9:16" = "16:9", resolution: "720p" | "1080p" = "720p") => {
+  await ensureApiKey();
+  const ai = getAI();
+  try {
+    let operation = await ai.models.generateVideos({
+      model: 'veo-3.1-fast-generate-preview',
+      prompt,
+      ...(imageBase64 && { image: { imageBytes: imageBase64, mimeType: mimeType || 'image/png' } }),
+      config: { numberOfVideos: 1, resolution, aspectRatio }
+    });
+    while (!operation.done) {
+      await new Promise(r => setTimeout(r, 10000));
+      operation = await ai.operations.getVideosOperation({ operation });
+    }
+    const result = operation.response?.generatedVideos?.[0];
+    if (!result?.video?.uri) throw new Error("Video generation failed.");
+    return { url: `${result.video.uri}&key=${process.env.API_KEY}`, videoObject: result.video };
+  } catch (err) {
+    if (await handleGeminiError(err)) return generateVeoVideo(prompt, imageBase64, mimeType, aspectRatio, resolution);
+    throw err;
+  }
 };
 
 export const groundedSearch = async (query: string, language: Language) => {
   const ai = getAI();
-  const langName = language === 'ln-CD' ? 'Lingala' : language === 'sw-KE' ? 'Swahili' : language;
-  const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
-    contents: `SYSTEM INSTRUCTION: Respond in ${langName}. Query: ${query}`,
-    config: { tools: [{ googleSearch: {} }] },
-  });
-  return {
-    text: response.text || '',
-    chunks: response.candidates?.[0]?.groundingMetadata?.groundingChunks || []
-  };
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: `Search for current information about: ${query}. Respond in ${language}.`,
+      config: { tools: [{ googleSearch: {} }] },
+    });
+    return {
+      text: response.text || '',
+      chunks: response.candidates?.[0]?.groundingMetadata?.groundingChunks || []
+    };
+  } catch (err) {
+    await handleGeminiError(err);
+    return { text: "Error performing search.", chunks: [] };
+  }
 };
 
-/* Add missing getConversationSuggestions function */
+export const chatWithGemini = async (history: { role: 'user' | 'model'; text: string }[], message: string, language: Language) => {
+  const ai = getAI();
+  try {
+    const chat = ai.chats.create({
+      model: 'gemini-3-flash-preview',
+      config: { systemInstruction: `Respond only in ${language}.` },
+    });
+    const response = await chat.sendMessage({ message });
+    return response.text;
+  } catch (err) {
+    await handleGeminiError(err);
+    return "I am currently unavailable.";
+  }
+};
+
 export const getConversationSuggestions = async (text: string, language: Language): Promise<ConversationSuggestion[]> => {
   const ai = getAI();
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
-    contents: `Analyze this conversational context and provide exactly 3 suggestions for how the user could continue. 
-    Format: JSON array of objects with "text" and "type" (one of: relance, empathy, humor). 
-    Language: ${language}. 
-    Context: "${text}"`,
-    config: {
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.ARRAY,
-        items: {
-          type: Type.OBJECT,
-          properties: {
-            text: { type: Type.STRING },
-            type: { type: Type.STRING, enum: ['relance', 'empathy', 'humor'] }
-          },
-          required: ["text", "type"]
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: `Based on context: "${text}", suggest 3 responses in ${language}. Return JSON array of objects with "text" and "type" (relance, empathy, humor).`,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              text: { type: Type.STRING },
+              type: { type: Type.STRING, enum: ['relance', 'empathy', 'humor'] }
+            },
+            required: ["text", "type"]
+          }
         }
       }
-    }
-  });
-  return JSON.parse(response.text || '[]');
+    });
+    return JSON.parse(response.text || '[]');
+  } catch (err) {
+    await handleGeminiError(err);
+    return [];
+  }
 };
 
-/* Add missing thinkingQuery function using gemini-3-pro-preview */
-export const thinkingQuery = async (prompt: string, language: Language) => {
+export const editImage = async (base64: string, mimeType: string, prompt: string) => {
   const ai = getAI();
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-pro-preview',
-    contents: `Respond in ${language}: ${prompt}`,
-    config: {
-      thinkingConfig: { thinkingBudget: 32768 }
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash-image',
+      contents: { parts: [{ inlineData: { data: base64, mimeType } }, { text: prompt }] }
+    });
+    for (const part of response.candidates?.[0]?.content?.parts || []) {
+      if (part.inlineData) return `data:image/png;base64,${part.inlineData.data}`;
     }
-  });
-  return response.text;
+  } catch (err) {
+    await handleGeminiError(err);
+  }
+  return null;
 };
+
+export const generateLogo = async (brandName: string) => {
+  const ai = getAI();
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash-image',
+      contents: { parts: [{ text: `Create a professional minimalist vector logo for "${brandName}".` }] }
+    });
+    for (const part of response.candidates?.[0]?.content?.parts || []) {
+      if (part.inlineData) return `data:image/png;base64,${part.inlineData.data}`;
+    }
+  } catch (err) {
+    await handleGeminiError(err);
+  }
+  return null;
+};
+
+export const saveToGallery = (item: any) => {
+  const saved = localStorage.getItem('muse_creations');
+  const gallery = saved ? JSON.parse(saved) : [];
+  const newItem = { ...item, id: Math.random().toString(36).substr(2, 9), timestamp: Date.now() };
+  gallery.unshift(newItem);
+  localStorage.setItem('muse_creations', JSON.stringify(gallery.slice(0, 100)));
+  return newItem;
+};
+
+export const getGallery = () => JSON.parse(localStorage.getItem('muse_creations') || '[]');
 
 export function pcmToWav(pcmData: Int16Array, sampleRate: number): Blob {
   const buffer = new ArrayBuffer(44 + pcmData.length * 2);
@@ -203,90 +294,6 @@ export function pcmToWav(pcmData: Int16Array, sampleRate: number): Blob {
 export function triggerDownload(url: string, filename: string) {
   const a = document.createElement('a'); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); document.body.removeChild(a);
 }
-
-export const generateProImage = async (prompt: string, aspectRatio: AspectRatio, imageSize: ImageSize) => {
-  await ensureApiKey();
-  const ai = getAI();
-  const response = await ai.models.generateContent({
-    model: 'gemini-3-pro-image-preview',
-    contents: { parts: [{ text: prompt }] },
-    config: { imageConfig: { aspectRatio: aspectRatio as any, imageSize } },
-  });
-  for (const part of response.candidates?.[0]?.content?.parts || []) if (part.inlineData) return `data:image/png;base64,${part.inlineData.data}`;
-  return null;
-};
-
-export const generateVeoVideo = async (prompt: string, imageBase64?: string, mimeType?: string, aspectRatio: "16:9" | "9:16" = "16:9", resolution: "720p" | "1080p" = "720p") => {
-  await ensureApiKey();
-  const ai = getAI();
-  let operation = await ai.models.generateVideos({
-    model: 'veo-3.1-fast-generate-preview',
-    prompt,
-    ...(imageBase64 && { image: { imageBytes: imageBase64, mimeType: mimeType || 'image/png' } }),
-    config: { numberOfVideos: 1, resolution, aspectRatio }
-  });
-  while (!operation.done) {
-    await new Promise(r => setTimeout(r, 10000));
-    operation = await ai.operations.getVideosOperation({ operation });
-  }
-  const result = operation.response?.generatedVideos?.[0];
-  if (!result || !result.video?.uri) throw new Error("Video generation failed.");
-  return { url: `${result.video.uri}&key=${process.env.API_KEY}`, videoObject: result.video };
-};
-
-/* Add missing extendVeoVideo function */
-export const extendVeoVideo = async (prompt: string, previousVideo: any) => {
-  await ensureApiKey();
-  const ai = getAI();
-  let operation = await ai.models.generateVideos({
-    model: 'veo-3.1-generate-preview',
-    prompt,
-    video: previousVideo,
-    config: {
-      numberOfVideos: 1,
-      resolution: '720p',
-      aspectRatio: previousVideo?.aspectRatio,
-    }
-  });
-  while (!operation.done) {
-    await new Promise(resolve => setTimeout(resolve, 5000));
-    operation = await ai.operations.getVideosOperation({ operation: operation });
-  }
-  const result = operation.response?.generatedVideos?.[0];
-  if (!result || !result.video?.uri) throw new Error("Video extension failed.");
-  return { url: `${result.video.uri}&key=${process.env.API_KEY}`, videoObject: result.video };
-};
-
-export const editImage = async (base64: string, mimeType: string, prompt: string) => {
-  const ai = getAI();
-  const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash-image',
-    contents: { parts: [{ inlineData: { data: base64, mimeType } }, { text: prompt }] }
-  });
-  for (const part of response.candidates?.[0]?.content?.parts || []) if (part.inlineData) return `data:image/png;base64,${part.inlineData.data}`;
-  return null;
-};
-
-export const generateLogo = async (brandName: string) => {
-  const ai = getAI();
-  const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash-image',
-    contents: { parts: [{ text: `Minimalist logo for "${brandName}", vector style, corporate white background.` }] }
-  });
-  for (const part of response.candidates?.[0]?.content?.parts || []) if (part.inlineData) return `data:image/png;base64,${part.inlineData.data}`;
-  return null;
-};
-
-export const saveToGallery = (item: any) => {
-  const saved = localStorage.getItem('muse_creations');
-  const gallery = saved ? JSON.parse(saved) : [];
-  const newItem = { ...item, id: Math.random().toString(36).substr(2, 9), timestamp: Date.now() };
-  gallery.unshift(newItem);
-  localStorage.setItem('muse_creations', JSON.stringify(gallery.slice(0, 100)));
-  return newItem;
-};
-
-export const getGallery = () => JSON.parse(localStorage.getItem('muse_creations') || '[]');
 
 export async function downloadFromUrl(url: string, filename: string) {
   try {
