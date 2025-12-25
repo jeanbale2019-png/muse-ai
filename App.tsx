@@ -16,8 +16,8 @@ import LanguageSelector from './components/LanguageSelector';
 import { Tab, Language, SUPPORTED_LANGUAGES, UserAccount } from './types';
 import { generateTTS, playTTS } from './services/geminiService';
 import { i18n } from './services/i18nService';
-import { initializeApp } from 'https://esm.sh/firebase@10.7.1/app';
-import { getFirestore, doc, onSnapshot, updateDoc } from 'https://esm.sh/firebase@10.7.1/firestore';
+import { initializeApp } from 'firebase/app';
+import { getFirestore, doc, onSnapshot, updateDoc } from 'firebase/firestore';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<Tab>('social');
@@ -38,10 +38,11 @@ const App: React.FC = () => {
   // Initialize Firestore
   const db = useMemo(() => {
     try {
-      const firebaseConfig = { projectId: "muse-mentor-ai" }; 
+      const firebaseConfig = { projectId: "muse-ai-77821724" }; 
       const app = initializeApp(firebaseConfig);
       return getFirestore(app);
     } catch (e) {
+      console.warn("Firebase Init Error:", e);
       return null;
     }
   }, []);

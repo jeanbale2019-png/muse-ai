@@ -4,19 +4,20 @@ import { StoryData, ConversationSuggestion, VoiceName, AspectRatio, ImageSize, L
 
 /**
  * Creates a fresh instance of the Gemini AI client.
- * Using a function ensures we always use the most up-to-date API key.
+ * Using a function ensures we always use the most up-to-date API key from the environment.
  */
 export const getAI = () => new GoogleGenAI({ apiKey: process.env.API_KEY as string });
 
 /**
- * Checks if an API key has been selected. Mandatory for high-tier models.
+ * Checks if an API key has been selected via AI Studio's dialog.
+ * Mandatory for high-tier models like Pro Image or Veo Video.
  */
 export const ensureApiKey = async () => {
   if (typeof (window as any).aistudio !== 'undefined') {
     const hasKey = await (window as any).aistudio.hasSelectedApiKey();
     if (!hasKey) {
       await (window as any).aistudio.openSelectKey();
-      // Proceed assuming the user will select or has selected a valid key
+      // Per instructions, assume success after triggering the dialog.
       return true;
     }
   }
@@ -25,11 +26,11 @@ export const ensureApiKey = async () => {
 
 /**
  * Global error handler for Gemini API calls.
- * Specifically handles the 404 "Requested entity was not found" error.
+ * Specifically handles the 404 "Requested entity was not found" error by re-prompting for a key.
  */
 export const handleGeminiError = async (err: any) => {
   const errorMessage = err?.message || (typeof err === 'object' ? JSON.stringify(err) : String(err));
-  console.error("Gemini API Error:", errorMessage);
+  console.error("Gemini API Error Context:", errorMessage);
 
   const isNotFound = errorMessage.includes("Requested entity was not found") || 
                      errorMessage.includes("404") || 
@@ -37,14 +38,14 @@ export const handleGeminiError = async (err: any) => {
                      err?.code === 404;
 
   if (isNotFound && typeof (window as any).aistudio !== 'undefined') {
-    console.warn("Model or Key not found. Re-prompting user for API Key selection...");
+    console.warn("Model or Key not found. This feature likely requires a paid API Key. Re-opening key selection...");
     await (window as any).aistudio.openSelectKey();
-    return true; // Indicates we should retry the original operation
+    return true; // Return true to indicate a retry might be possible
   }
   return false;
 };
 
-// --- Audio Encoding/Decoding ---
+// --- Audio Utilities ---
 export function decode(base64: string) {
   const binaryString = atob(base64);
   const bytes = new Uint8Array(binaryString.length);
@@ -79,7 +80,7 @@ export const analyzeImageAndGhostwrite = async (base64: string, mimeType: string
       contents: {
         parts: [
           { inlineData: { data: base64, mimeType } },
-          { text: `Analyze this image in the style of ${genre}. Respond in the language: ${language}. 
+          { text: `Analyze this image in the style of ${genre}. Respond strictly in ${language}. 
                   Provide a JSON object with: openingParagraph, mood, sceneAnalysis, characters (list), worldBuilding, sensoryDetails (list), plotTwists (list).` }
         ]
       },
@@ -171,6 +172,36 @@ export const generateVeoVideo = async (prompt: string, imageBase64?: string, mim
     return { url: `${result.video.uri}&key=${process.env.API_KEY}`, videoObject: result.video };
   } catch (err) {
     if (await handleGeminiError(err)) return generateVeoVideo(prompt, imageBase64, mimeType, aspectRatio, resolution);
+    throw err;
+  }
+};
+
+/**
+ * Extends a previously generated video.
+ */
+export const extendVeoVideo = async (prompt: string, previousVideo: any) => {
+  await ensureApiKey();
+  const ai = getAI();
+  try {
+    let operation = await ai.models.generateVideos({
+      model: 'veo-3.1-generate-preview',
+      prompt,
+      video: previousVideo,
+      config: {
+        numberOfVideos: 1,
+        resolution: '720p',
+        aspectRatio: previousVideo?.aspectRatio,
+      }
+    });
+    while (!operation.done) {
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      operation = await ai.operations.getVideosOperation({ operation: operation });
+    }
+    const result = operation.response?.generatedVideos?.[0];
+    if (!result?.video?.uri) throw new Error("Video extension failed.");
+    return { url: `${result.video.uri}&key=${process.env.API_KEY}`, videoObject: result.video };
+  } catch (err) {
+    if (await handleGeminiError(err)) return extendVeoVideo(prompt, previousVideo);
     throw err;
   }
 };

@@ -1,6 +1,6 @@
 
 import { UserAccount, SubscriptionTier } from '../types';
-import { getFirestore, doc, updateDoc, increment } from 'https://esm.sh/firebase@10.7.1/firestore';
+import { getFirestore, doc, updateDoc, increment } from 'firebase/firestore';
 
 export const checkPermission = (user: UserAccount | null, feature: string): { allowed: boolean; message?: string } => {
   if (!user) return { allowed: false, message: "Veuillez vous connecter pour accéder à cette fonctionnalité." };
@@ -47,19 +47,23 @@ export const checkPermission = (user: UserAccount | null, feature: string): { al
 };
 
 export const registerChallengeUsage = async (user: UserAccount, db: any) => {
-  if (user.tier !== 'free') return;
+  if (!db || user.tier !== 'free') return;
 
   const today = new Date().toISOString().split('T')[0];
   const userRef = doc(db, "users", user.id);
 
-  if (user.lastChallengeDate !== today) {
-    await updateDoc(userRef, {
-      lastChallengeDate: today,
-      dailyChallengesUsed: 1
-    });
-  } else {
-    await updateDoc(userRef, {
-      dailyChallengesUsed: increment(1)
-    });
+  try {
+    if (user.lastChallengeDate !== today) {
+      await updateDoc(userRef, {
+        lastChallengeDate: today,
+        dailyChallengesUsed: 1
+      });
+    } else {
+      await updateDoc(userRef, {
+        dailyChallengesUsed: increment(1)
+      });
+    }
+  } catch (err) {
+    console.warn("Usage Registration Failed:", err);
   }
 };

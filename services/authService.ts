@@ -1,5 +1,4 @@
 
-
 import { initializeApp, getApp, getApps } from 'firebase/app';
 import { 
   getAuth, 
@@ -33,7 +32,6 @@ export const registerUser = async (email: string, pass: string, username: string
   const userCredential = await createUserWithEmailAndPassword(auth, email, pass);
   const firebaseUser = userCredential.user;
 
-  /* Fix: Add missing language property to UserAccount */
   const userData: UserAccount = {
     id: firebaseUser.uid,
     username: username,
@@ -62,7 +60,6 @@ export const loginUser = async (email: string, pass: string): Promise<UserAccoun
   if (docSnap.exists()) {
     return docSnap.data() as UserAccount;
   } else {
-    /* Fix: Add missing language property to UserAccount */
     const userData: UserAccount = {
       id: userCredential.user.uid,
       username: userCredential.user.displayName || "User_" + userCredential.user.uid.substring(0, 5),
@@ -89,7 +86,6 @@ export const loginWithGoogle = async (): Promise<UserAccount> => {
   if (docSnap.exists()) {
     return docSnap.data() as UserAccount;
   } else {
-    /* Fix: Add missing language property to UserAccount */
     const userData: UserAccount = {
       id: firebaseUser.uid,
       username: firebaseUser.displayName || "Muse_" + firebaseUser.uid.substring(0, 5),
