@@ -1,0 +1,9 @@
+{
+  "name": "Social Muse",
+  "description": "AI-augmented live social platform for elite communication and creative leadership.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "geolocation"
+  ]
+}
