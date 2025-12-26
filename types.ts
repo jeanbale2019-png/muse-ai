@@ -16,6 +16,7 @@ export interface UserAccount {
   avatar?: string; // Champ pour la photo de profil
   lastChallengeDate?: string; 
   dailyChallengesUsed?: number;
+  address?: string; 
 }
 
 export type Language = 
@@ -55,6 +56,17 @@ export interface StoryData {
   worldBuilding: string;
   sensoryDetails: string[];
   plotTwists: string[];
+  // Extended Creative Writing Analysis
+  visualAnalysis: {
+    lighting: string;
+    composition: string;
+    colorPalette: string[];
+  };
+  writingPrompts: {
+    action: string;
+    dialogue: string;
+    internal: string;
+  };
 }
 
 export type StoryGenre = 'fantasy' | 'scifi' | 'noir' | 'romance' | 'horror' | 'historical';
@@ -68,8 +80,6 @@ export const AVAILABLE_VOICES: { name: VoiceName; label: string; description: st
   { name: 'Charon', label: 'Charon', description: 'Grave and resonant' },
   { name: 'Fenrir', label: 'Fenrir', description: 'Commanding and authoritative' },
 ];
-
-/* Define missing types reported in errors */
 
 export interface ConversationSuggestion {
   text: string;
