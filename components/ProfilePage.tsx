@@ -1,9 +1,20 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { getGallery } from '../services/geminiService';
-import { initializeApp } from 'https://esm.sh/firebase@10.7.1/app';
-import { getFirestore, doc, onSnapshot, setDoc, updateDoc, increment, arrayUnion, arrayRemove, getDoc } from 'https://esm.sh/firebase@10.7.1/firestore';
 import { UserAccount } from '../types';
+
+// Central Firebase imports
+import { db } from '../services/firebase';
+import { 
+  doc, 
+  onSnapshot, 
+  setDoc, 
+  updateDoc, 
+  increment, 
+  arrayUnion, 
+  arrayRemove,
+  getDoc
+} from 'firebase/firestore';
 
 interface UserProfile {
   fullName: string;
@@ -40,17 +51,6 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ targetUserId, onBack, languag
   const effectiveUserId = targetUserId || currentUserId;
   const isOwnProfile = effectiveUserId === currentUserId;
 
-  // Initialize Firestore
-  const db = useMemo(() => {
-    try {
-      const firebaseConfig = { projectId: "muse-mentor-ai" }; 
-      const app = initializeApp(firebaseConfig);
-      return getFirestore(app);
-    } catch (e) {
-      return null;
-    }
-  }, []);
-
   const [profile, setProfile] = useState<UserProfile>(() => {
     const saved = localStorage.getItem(`muse_profile_${effectiveUserId}`);
     if (saved) return JSON.parse(saved);
@@ -76,7 +76,6 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ targetUserId, onBack, languag
     const unsubProfile = onSnapshot(doc(db, "users", effectiveUserId), (snapshot) => {
       if (snapshot.exists()) {
         const data = snapshot.data() as UserProfile;
-        // Merge with existing fields if partial
         setProfile(prev => ({ ...prev, ...data }));
         localStorage.setItem(`muse_profile_${effectiveUserId}`, JSON.stringify({ ...profile, ...data }));
       } else if (isOwnProfile) {
@@ -106,7 +105,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ targetUserId, onBack, languag
     if (isOwnProfile) {
       setSavedCreations(getGallery());
     } else {
-      setSavedCreations([]); // Only show creations for self in this version
+      setSavedCreations([]); // Only show creations for self in this version for privacy
     }
   }, [activeTab, isOwnProfile]);
 
@@ -116,8 +115,6 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ targetUserId, onBack, languag
     { id: 3, type: 'image', url: 'https://images.unsplash.com/photo-1620641788421-7a1c342ea42e?auto=format&fit=crop&q=80&w=400', title: 'Ethereal' },
     { id: 4, type: 'image', url: 'https://images.unsplash.com/photo-1614728263952-84ea256f9679?auto=format&fit=crop&q=80&w=400', title: 'Glitch Sky' },
   ];
-
-  const featuredPost = pastCreations.find(p => p.featured) || pastCreations[0];
 
   const handleSave = async () => {
     setIsLoading(true);
@@ -158,7 +155,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ targetUserId, onBack, languag
     }));
 
     try {
-      // Update current user's 'following' list
+      // Update current user's 'following' list in 'follows' collection
       await setDoc(doc(db, "follows", currentUserId), {
         following: nowFollowing ? arrayUnion(effectiveUserId) : arrayRemove(effectiveUserId)
       }, { merge: true });
@@ -174,11 +171,12 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ targetUserId, onBack, languag
       });
     } catch (e) {
       console.error("Follow error:", e);
-      setIsFollowing(!nowFollowing); // Rollback follow status
+      // Rollback on failure
+      setIsFollowing(!nowFollowing);
       setProfile(prev => ({
         ...prev,
         followersCount: prev.followersCount + (nowFollowing ? -1 : 1)
-      })); // Rollback count
+      }));
     }
   };
 
@@ -202,7 +200,6 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ targetUserId, onBack, languag
 
   return (
     <div className="bg-[#f8f9fa] min-h-screen pb-32 font-sans text-zinc-900 selection:bg-indigo-100 animate-in fade-in duration-500">
-      {/* Header Premium */}
       <header className="sticky top-0 z-50 bg-white/70 backdrop-blur-xl border-b border-zinc-200/50 px-5 py-4 flex justify-between items-center shadow-sm">
         <div className="flex items-center space-x-4">
           <button 
@@ -217,11 +214,6 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ targetUserId, onBack, languag
             </h1>
           </div>
         </div>
-        {isOwnProfile && (
-          <button className="text-rose-500 font-bold text-[10px] uppercase tracking-widest hover:text-rose-600 transition-colors bg-rose-50 px-3 py-1.5 rounded-lg border border-rose-100">
-            Déconnexion
-          </button>
-        )}
       </header>
 
       <main className="max-w-xl mx-auto px-5 py-8 space-y-12">
@@ -257,13 +249,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ targetUserId, onBack, languag
               </div>
             )}
 
-            <input 
-              type="file" 
-              ref={fileInputRef} 
-              className="hidden" 
-              accept="image/*" 
-              onChange={handleFileChange} 
-            />
+            <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleFileChange} />
           </div>
 
           <div className="text-center space-y-4 w-full">
@@ -273,7 +259,6 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ targetUserId, onBack, languag
                   value={profile.fullName} 
                   onChange={e => setProfile({...profile, fullName: e.target.value})}
                   className="text-2xl font-black tracking-tight text-center bg-transparent border-b border-indigo-200 outline-none w-full max-w-xs focus:border-indigo-500"
-                  placeholder="Nom complet"
                 />
               ) : (
                 <h2 className="text-2xl font-black tracking-tight">{profile.fullName}</h2>
@@ -285,7 +270,6 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ targetUserId, onBack, languag
                     value={profile.location} 
                     onChange={e => setProfile({...profile, location: e.target.value})}
                     className="text-[10px] font-black uppercase tracking-widest bg-transparent border-b border-zinc-200 outline-none w-32 focus:border-indigo-500"
-                    placeholder="Ville, Pays"
                   />
                 ) : (
                   <span className="text-[10px] font-black uppercase tracking-widest">{profile.location}</span>
@@ -293,7 +277,6 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ targetUserId, onBack, languag
               </div>
             </div>
 
-            {/* Stats Section - Reactive Counts Display */}
             <div className="flex items-center justify-center space-x-8 py-6 bg-white shadow-[0_10px_30px_rgba(0,0,0,0.05)] rounded-[2.5rem] border border-zinc-100 backdrop-blur-sm">
               <div className="flex flex-col items-center px-4 transition-all hover:scale-105">
                 <span className="text-xl font-black text-zinc-900 tabular-nums">{profile.postsCount}</span>
@@ -351,7 +334,6 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ targetUserId, onBack, languag
           </div>
         </div>
 
-        {/* Bio Section */}
         <div className="space-y-6 pt-4 border-t border-zinc-100">
           <div className="space-y-3">
             <label className="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-400 ml-1">Manifeste Personnel</label>
@@ -360,8 +342,8 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ targetUserId, onBack, languag
                 value={profile.bio} 
                 onChange={e => setProfile({...profile, bio: e.target.value})}
                 rows={4}
-                className="w-full bg-white border border-zinc-200 rounded-2xl px-5 py-4 text-sm focus:outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all resize-none shadow-inner"
-                placeholder="Exprimez votre vision..."
+                className="w-full bg-white border border-zinc-200 rounded-2xl px-5 py-4 text-sm focus:outline-none shadow-inner"
+                placeholder="Décrivez votre vision..."
               />
             ) : (
               <p className="text-sm leading-relaxed text-zinc-700 font-medium bg-white/40 p-5 rounded-2xl border border-zinc-100 italic">
@@ -371,87 +353,43 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ targetUserId, onBack, languag
           </div>
         </div>
 
-        {/* Dynamic Gallery Tabs */}
         <div className="space-y-8 pt-4 border-t border-zinc-100">
            <div className="flex items-center justify-center space-x-4 p-1 bg-zinc-100 rounded-2xl">
-              <button 
-                onClick={() => setActiveTab('posts')}
-                className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${activeTab === 'posts' ? 'bg-white shadow-md text-indigo-600' : 'text-zinc-400 hover:text-zinc-600'}`}
-              >
-                Public Posts
-              </button>
-              <button 
-                onClick={() => setActiveTab('creations')}
-                className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${activeTab === 'creations' ? 'bg-white shadow-md text-indigo-600' : 'text-zinc-400 hover:text-zinc-600'}`}
-              >
-                AI Creations Vault
-              </button>
+              <button onClick={() => setActiveTab('posts')} className={`flex-1 py-3 text-[10px] font-black uppercase rounded-xl transition-all ${activeTab === 'posts' ? 'bg-white shadow-md text-indigo-600' : 'text-zinc-400 hover:text-zinc-600'}`}>Posts</button>
+              <button onClick={() => setActiveTab('creations')} className={`flex-1 py-3 text-[10px] font-black uppercase rounded-xl transition-all ${activeTab === 'creations' ? 'bg-white shadow-md text-indigo-600' : 'text-zinc-400 hover:text-zinc-600'}`}>Vault</button>
            </div>
 
            {activeTab === 'posts' ? (
-              <div className="space-y-8 animate-in fade-in duration-500">
-                 {/* Highlighted Post Section */}
-                 <div className="space-y-6">
-                    <div className="relative group rounded-[2.5rem] overflow-hidden bg-zinc-900 aspect-[16/9] shadow-2xl border border-zinc-200/50">
-                       <img src={featuredPost.url} alt="Featured" className="w-full h-full object-cover transition-transform duration-1000 group-hover:scale-105" />
-                       <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent p-8 flex flex-col justify-end">
-                         <div className="space-y-2">
-                           <span className="text-[9px] font-black uppercase tracking-[0.4em] text-indigo-400 bg-indigo-500/10 backdrop-blur-md px-3 py-1 rounded-full border border-indigo-500/20">Chef-d'œuvre</span>
-                           <h3 className="text-2xl font-serif text-white italic">{featuredPost.title}</h3>
-                         </div>
-                       </div>
-                    </div>
-                 </div>
-
-                 <div className="grid grid-cols-2 gap-4">
-                   {pastCreations.filter(p => !p.featured).map((post) => (
-                     <div key={post.id} className="group relative aspect-square rounded-[2rem] overflow-hidden bg-zinc-100 shadow-lg border border-zinc-200/50 cursor-pointer">
+              <div className="grid grid-cols-2 gap-4 animate-in fade-in duration-500">
+                   {pastCreations.map((post) => (
+                     <div key={post.id} className="group relative aspect-square rounded-[2rem] overflow-hidden shadow-lg border border-zinc-200/50 cursor-pointer">
                        <img src={post.url} alt={post.title} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
-                       <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-5">
-                         <span className="text-white text-[9px] font-black uppercase tracking-[0.2em]">{post.title}</span>
-                       </div>
+                       <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity"></div>
                      </div>
                    ))}
                    {isOwnProfile && (
-                    <div className="aspect-square rounded-[2rem] border-2 border-dashed border-zinc-200 flex flex-col items-center justify-center text-zinc-400 hover:border-indigo-300 hover:text-indigo-400 transition-all cursor-pointer bg-white/50">
+                    <div className="aspect-square rounded-[2rem] border-2 border-dashed border-zinc-200 flex flex-col items-center justify-center text-zinc-400 hover:border-indigo-300 hover:text-indigo-400 transition-all cursor-pointer">
                        <i className="fa-solid fa-plus text-xl mb-2"></i>
-                       <span className="text-[9px] font-black uppercase tracking-widest">Nouveau Post</span>
+                       <span className="text-[8px] font-black uppercase">Nouveau Post</span>
                     </div>
                    )}
-                 </div>
               </div>
            ) : (
-              <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
+              <div className="animate-in slide-in-from-bottom-4 duration-500">
                  {isOwnProfile ? (
-                   <>
-                    <div className="flex justify-between items-center px-1">
-                      <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">{savedCreations.length} items in Vault</p>
-                    </div>
-                    
-                    {savedCreations.length === 0 ? (
-                      <div className="py-20 flex flex-col items-center justify-center text-center opacity-20 space-y-4">
-                         <i className="fa-solid fa-box-open text-4xl"></i>
-                         <p className="text-[10px] font-black uppercase tracking-widest">Vault is empty</p>
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-2 gap-4">
-                        {savedCreations.map((item) => (
-                          <div key={item.id} className="group relative aspect-square rounded-[2rem] overflow-hidden bg-[#0c0c0e] shadow-xl border border-zinc-200/50 cursor-pointer group">
-                            {item.type === 'video' ? (
-                              <video src={item.url} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
-                            ) : (
-                              <img src={item.url} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
-                            )}
-                            
-                            <div className="absolute inset-0 flex flex-col justify-end p-4 bg-gradient-to-t from-black/90 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
-                               <span className="text-[8px] text-indigo-400 font-black uppercase mb-1">{item.type} • {item.quality}</span>
-                               <p className="text-[9px] text-white font-medium line-clamp-2 italic">"{item.prompt.substring(0, 50)}..."</p>
-                            </div>
+                    <div className="grid grid-cols-2 gap-4">
+                        {savedCreations.length > 0 ? savedCreations.map((item) => (
+                          <div key={item.id} className="group relative aspect-square rounded-[2rem] overflow-hidden bg-[#0c0c0e] shadow-xl border border-zinc-200/50 cursor-pointer">
+                            <img src={item.url} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" alt="Creation" />
+                            <div className="absolute bottom-3 left-3 bg-black/60 backdrop-blur-md px-2 py-1 rounded text-[7px] font-black uppercase text-indigo-400">{item.type}</div>
                           </div>
-                        ))}
-                      </div>
-                    )}
-                   </>
+                        )) : (
+                          <div className="col-span-2 py-20 text-center opacity-20">
+                            <i className="fa-solid fa-box-open text-4xl mb-4"></i>
+                            <p className="text-[10px] font-black uppercase tracking-widest">Le coffre est vide</p>
+                          </div>
+                        )}
+                    </div>
                  ) : (
                    <div className="py-20 text-center opacity-40">
                       <i className="fa-solid fa-lock text-3xl mb-4"></i>
@@ -461,35 +399,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ targetUserId, onBack, languag
               </div>
            )}
         </div>
-
-        {/* Save Button Overlay for Edit Mode */}
-        {isEditing && isOwnProfile && (
-          <div className="fixed bottom-32 left-0 right-0 px-6 max-w-xl mx-auto z-[70] animate-in slide-in-from-bottom-8 duration-500">
-            <button 
-              onClick={handleSave}
-              disabled={isLoading}
-              className="w-full py-5 bg-zinc-900 text-white rounded-3xl font-black uppercase text-[11px] tracking-[0.3em] shadow-[0_20px_50px_rgba(0,0,0,0.3)] hover:bg-black transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center border border-white/10"
-            >
-              {isLoading ? (
-                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-              ) : (
-                "Valider le profil"
-              )}
-            </button>
-          </div>
-        )}
       </main>
-
-      {/* Navigation Footer Glass */}
-      <nav className="fixed bottom-8 left-1/2 -translate-x-1/2 w-[90%] max-w-md bg-white/80 backdrop-blur-2xl border border-zinc-200/50 rounded-full px-10 py-5 flex justify-between items-center shadow-[0_15px_35px_rgba(0,0,0,0.1)] z-50">
-        <button onClick={onBack} className="text-zinc-400 text-xl transition-all hover:text-zinc-800 hover:scale-110 active:scale-90"><i className="fa-solid fa-house"></i></button>
-        <button className="text-zinc-400 text-xl transition-all hover:text-zinc-800 hover:scale-110 active:scale-90"><i className="fa-solid fa-magnifying-glass"></i></button>
-        <button className="text-zinc-400 text-xl transition-all hover:text-zinc-800 hover:scale-110 active:scale-90 relative">
-          <i className="fa-solid fa-comment-dots"></i>
-          <span className="absolute -top-1 -right-1 w-2 h-2 bg-rose-500 rounded-full border border-white"></span>
-        </button>
-        <button className={`text-xl transition-all ${isOwnProfile ? 'text-indigo-600 scale-125' : 'text-zinc-400'}`}><i className="fa-solid fa-user"></i></button>
-      </nav>
     </div>
   );
 };

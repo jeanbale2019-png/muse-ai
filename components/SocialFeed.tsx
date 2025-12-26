@@ -2,11 +2,21 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Modality, LiveServerMessage } from "@google/genai";
 import { handleGeminiError, getAI, encode, decode, decodeAudioData } from '../services/geminiService';
-import { Language, SessionReport, LiveReaction, UserAccount } from '../types';
+import { Language, UserAccount } from '../types';
 
-// Firebase imports - Using esm.sh for consistent versioning
-import { initializeApp } from 'https://esm.sh/firebase@10.7.1/app';
-import { getFirestore, collection, onSnapshot, serverTimestamp, query, orderBy, limit, doc, setDoc, addDoc, getDoc, deleteDoc, updateDoc, increment } from 'https://esm.sh/firebase@10.7.1/firestore';
+// Use central firebase service
+import { db } from '../services/firebase';
+import { 
+  collection, 
+  onSnapshot, 
+  serverTimestamp, 
+  query, 
+  orderBy, 
+  limit, 
+  doc, 
+  addDoc, 
+  updateDoc 
+} from 'firebase/firestore';
 
 type RoomTheme = 'eloquence' | 'philosophy' | 'zen' | 'debate';
 type PostType = 'photo' | 'video' | 'audio';
@@ -83,7 +93,6 @@ const SocialFeed: React.FC<SocialFeedProps> = ({ onBack, onProfile, onStartLive,
   const [activeRoom, setActiveRoom] = useState<RoomConfig | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<'online' | 'offline'>('offline');
   
-  // Composer States
   const [activePostTab, setActivePostTab] = useState<PostType>('photo');
   const [postContent, setPostContent] = useState('');
   const [postMedia, setPostMedia] = useState<string | null>(null);
@@ -91,19 +100,16 @@ const SocialFeed: React.FC<SocialFeedProps> = ({ onBack, onProfile, onStartLive,
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Feed States
   const [posts, setPosts] = useState<SocialPost[]>([]);
   const [likedPosts, setLikedPosts] = useState<Set<string>>(() => {
     const saved = localStorage.getItem('muse_liked_posts');
     return new Set(saved ? JSON.parse(saved) : []);
   });
 
-  // AI States
   const [aiStatus, setAiStatus] = useState('En attente');
   const [transcripts, setTranscripts] = useState<string[]>([]);
   const [volume, setVolume] = useState(0);
 
-  // Refs for audio handling
   const sessionPromiseRef = useRef<Promise<any> | null>(null);
   const inputAudioContextRef = useRef<AudioContext | null>(null);
   const outputAudioContextRef = useRef<AudioContext | null>(null);
@@ -111,24 +117,8 @@ const SocialFeed: React.FC<SocialFeedProps> = ({ onBack, onProfile, onStartLive,
   const sourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
 
   const currentUserId = useMemo(() => {
-    const savedId = localStorage.getItem('muse_userId');
-    if (savedId) return savedId;
-    const newId = `User_${Math.random().toString(36).substr(2, 4)}`;
-    localStorage.setItem('muse_userId', newId);
-    return newId;
-  }, []);
-
-  // Safe Firestore Access
-  const db = useMemo(() => {
-    try {
-      const firebaseConfig = { projectId: "muse-mentor-ai" }; 
-      const app = initializeApp(firebaseConfig);
-      return getFirestore(app);
-    } catch (e) {
-      console.warn("Firebase initialization failed. Operating in local-only mode.");
-      return null;
-    }
-  }, []);
+    return user?.id || localStorage.getItem('muse_userId') || 'Guest';
+  }, [user]);
 
   useEffect(() => {
     const local = JSON.parse(localStorage.getItem('muse_local_posts') || '[]');
@@ -156,11 +146,7 @@ const SocialFeed: React.FC<SocialFeedProps> = ({ onBack, onProfile, onStartLive,
           setConnectionStatus('online');
         },
         error: (err) => {
-          if (err.code === 'permission-denied') {
-            console.debug("Cloud database restricted (permission-denied). Social feed is in local-first mode.");
-          } else {
-            console.warn("Firestore error:", err.message);
-          }
+          console.warn("Firestore error:", err.message);
           setConnectionStatus('offline');
         }
       });
@@ -176,22 +162,18 @@ const SocialFeed: React.FC<SocialFeedProps> = ({ onBack, onProfile, onStartLive,
     
     try {
       if (editingPostId) {
-        // Handle Edit
         const updatedPostData = {
           content: postContent,
           media: postMedia,
           type: activePostTab,
         };
 
-        // Update Local State
         setPosts(prev => prev.map(p => p.id === editingPostId ? { ...p, ...updatedPostData } : p));
 
-        // Update LocalStorage
         const local = JSON.parse(localStorage.getItem('muse_local_posts') || '[]');
         const updatedLocal = local.map((p: any) => p.id === editingPostId ? { ...p, ...updatedPostData } : p);
         localStorage.setItem('muse_local_posts', JSON.stringify(updatedLocal));
 
-        // Update Cloud if online
         if (db && connectionStatus === 'online' && !editingPostId.startsWith('local_')) {
           try {
             const postRef = doc(db, "posts", editingPostId);
@@ -201,7 +183,6 @@ const SocialFeed: React.FC<SocialFeedProps> = ({ onBack, onProfile, onStartLive,
           }
         }
       } else {
-        // Handle New Post
         const newPost: SocialPost = {
           id: `local_${Date.now()}`,
           userId: currentUserId,
@@ -376,12 +357,9 @@ const SocialFeed: React.FC<SocialFeedProps> = ({ onBack, onProfile, onStartLive,
           </h1>
         </div>
         <div className="flex items-center space-x-4">
-          {/* Start Live Quick Action */}
           <button 
             onClick={onStartLive}
             className="group flex items-center space-x-2 px-4 py-2 bg-rose-600/10 border border-rose-500/20 rounded-xl text-rose-500 hover:bg-rose-600 hover:text-white transition-all active:scale-95 shadow-lg shadow-rose-600/5"
-            title="Start your own Live Session"
-            aria-label="Start a live session"
           >
             <div className="relative">
               <i className="fa-solid fa-video text-xs group-hover:scale-110 transition-transform"></i>
@@ -408,7 +386,6 @@ const SocialFeed: React.FC<SocialFeedProps> = ({ onBack, onProfile, onStartLive,
 
       {view === 'lobby' && (
         <main className="max-w-4xl mx-auto p-4 md:p-8 space-y-12 h-[calc(100vh-80px)] overflow-y-auto no-scrollbar">
-          {/* Studios Row */}
           <section className="space-y-6">
             <div className="flex justify-between items-center px-2">
               <h2 className="text-[10px] font-black uppercase tracking-[0.4em] text-zinc-500">Live Studios</h2>
@@ -426,7 +403,6 @@ const SocialFeed: React.FC<SocialFeedProps> = ({ onBack, onProfile, onStartLive,
             </div>
           </section>
 
-          {/* Social Stream */}
           <section className="space-y-8 pb-32">
             <div className="flex items-center justify-between border-b border-white/5 pb-4 px-2">
               <h2 className="text-[10px] font-black uppercase tracking-[0.4em] text-zinc-500">Community Stream</h2>
@@ -451,7 +427,6 @@ const SocialFeed: React.FC<SocialFeedProps> = ({ onBack, onProfile, onStartLive,
                       </div>
                     )}
                     <div className="p-6 md:p-8 flex-1 space-y-4 flex flex-col relative">
-                      {/* Author & Edit Action */}
                       <div className="flex justify-between items-start">
                         <button 
                           onClick={() => onProfile?.(post.userId)}
@@ -459,12 +434,9 @@ const SocialFeed: React.FC<SocialFeedProps> = ({ onBack, onProfile, onStartLive,
                         >
                           <div className="relative">
                             <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${post.userId}`} className="w-10 h-10 rounded-full bg-zinc-800 ring-2 ring-white/5 group-hover/author:ring-indigo-500/50 transition-all duration-300 shadow-lg" alt="avatar" />
-                            <div className="absolute inset-0 rounded-full bg-indigo-500/0 group-hover/author:bg-indigo-500/10 transition-colors duration-300"></div>
                           </div>
                           <div className="flex flex-col text-left">
-                            <span className="text-[11px] font-black text-indigo-400 uppercase tracking-tighter group-hover/author:text-indigo-300 transition-colors group-hover/author:underline decoration-indigo-500/30 underline-offset-4">
-                              {post.userId}
-                            </span>
+                            <span className="text-[11px] font-black text-indigo-400 uppercase tracking-tighter">{post.userId}</span>
                             <span className="text-[8px] text-zinc-600 font-bold uppercase tracking-widest">
                                 {new Date(typeof post.timestamp === 'number' ? post.timestamp : post.timestamp?.toMillis?.() || Date.now()).toLocaleDateString()}
                             </span>
@@ -472,11 +444,7 @@ const SocialFeed: React.FC<SocialFeedProps> = ({ onBack, onProfile, onStartLive,
                         </button>
 
                         {post.userId === currentUserId && (
-                          <button 
-                            onClick={() => startEdit(post)}
-                            className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center border border-white/5 text-zinc-500 hover:text-indigo-400 hover:bg-indigo-500/10 transition-all active:scale-90"
-                            title="Edit Post"
-                          >
+                          <button onClick={() => startEdit(post)} className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center border border-white/5 text-zinc-500 hover:text-indigo-400 transition-all active:scale-90">
                             <i className="fa-solid fa-pen-to-square text-sm"></i>
                           </button>
                         )}
@@ -497,8 +465,7 @@ const SocialFeed: React.FC<SocialFeedProps> = ({ onBack, onProfile, onStartLive,
             </div>
           </section>
 
-          {/* Floating Action Button */}
-          <button onClick={() => {setEditingPostId(null); setPostContent(''); setPostMedia(null); setView('composer');}} className="fixed bottom-10 right-10 w-16 h-16 bg-indigo-600 rounded-full flex items-center justify-center text-white shadow-2xl shadow-indigo-600/40 hover:scale-110 hover:bg-indigo-500 active:scale-95 transition-all z-[60] border border-white/20">
+          <button onClick={() => {setEditingPostId(null); setPostContent(''); setPostMedia(null); setView('composer');}} className="fixed bottom-10 right-10 w-16 h-16 bg-indigo-600 rounded-full flex items-center justify-center text-white shadow-2xl shadow-indigo-600/40 hover:scale-110 active:scale-95 transition-all z-[60] border border-white/20">
             <i className="fa-solid fa-plus text-2xl"></i>
           </button>
         </main>
@@ -525,81 +492,42 @@ const SocialFeed: React.FC<SocialFeedProps> = ({ onBack, onProfile, onStartLive,
               placeholder="What's on your mind?..."
             />
 
-            {/* Dedicated Photo Upload Area */}
             {activePostTab === 'photo' && (
               <div className="space-y-4">
                 {postMedia ? (
                   <div className="relative aspect-video rounded-3xl overflow-hidden border border-white/10 group shadow-2xl">
                     <img src={postMedia} className="w-full h-full object-cover" alt="upload" />
-                    <button 
-                      onClick={() => setPostMedia(null)} 
-                      className="absolute top-4 right-4 w-10 h-10 bg-black/60 backdrop-blur-md rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity border border-white/10"
-                    >
+                    <button onClick={() => setPostMedia(null)} className="absolute top-4 right-4 w-10 h-10 bg-black/60 backdrop-blur-md rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity border border-white/10">
                       <i className="fa-solid fa-xmark"></i>
                     </button>
                   </div>
                 ) : (
-                  <div 
-                    onClick={() => fileInputRef.current?.click()}
-                    className="aspect-video rounded-[2.5rem] border-2 border-dashed border-zinc-800 hover:border-indigo-500/50 hover:bg-indigo-500/5 transition-all flex flex-col items-center justify-center cursor-pointer group space-y-4"
-                  >
+                  <div onClick={() => fileInputRef.current?.click()} className="aspect-video rounded-[2.5rem] border-2 border-dashed border-zinc-800 hover:border-indigo-500/50 hover:bg-indigo-500/5 transition-all flex flex-col items-center justify-center cursor-pointer group space-y-4">
                     <div className="w-16 h-16 bg-zinc-900 rounded-full flex items-center justify-center border border-zinc-800 group-hover:scale-110 transition-transform">
                       <i className="fa-solid fa-cloud-arrow-up text-2xl text-zinc-500 group-hover:text-indigo-400"></i>
                     </div>
-                    <div className="text-center">
-                      <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500 group-hover:text-zinc-300">Click to upload photo</p>
-                      <p className="text-[8px] text-zinc-600 uppercase tracking-tighter mt-1">High resolution supported</p>
-                    </div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Click to upload photo</p>
                   </div>
                 )}
               </div>
             )}
 
             <div className="flex items-center justify-between pt-6 border-t border-white/5">
-              <div className="flex items-center space-x-4">
-                <button 
-                  onClick={() => fileInputRef.current?.click()} 
-                  className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all ${activePostTab === 'photo' ? 'bg-indigo-500/10 text-indigo-400' : 'text-zinc-500 hover:text-white bg-white/5'}`}
-                  title="Attach File"
-                >
-                  <i className="fa-solid fa-paperclip"></i>
-                </button>
-                <div className="hidden sm:flex flex-col">
-                  <span className="text-[8px] font-black uppercase text-zinc-600 tracking-widest">Attachment</span>
-                  <span className="text-[9px] font-bold text-zinc-400 uppercase">{postMedia ? 'File Ready' : 'None Selected'}</span>
-                </div>
-              </div>
-
-              <input 
-                type="file" 
-                ref={fileInputRef} 
-                className="hidden" 
-                accept="image/*" 
-                onChange={e => {
+              <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={e => {
                   const file = e.target.files?.[0];
                   if (file) {
                     const reader = new FileReader();
                     reader.onload = () => {
                       setPostMedia(reader.result as string);
-                      setActivePostTab('photo'); // Auto-switch to photo tab on upload
+                      setActivePostTab('photo');
                     };
                     reader.readAsDataURL(file);
                   }
                 }} 
               />
-              
               <div className="flex items-center space-x-4">
-                <button 
-                  onClick={() => {setView('lobby'); setEditingPostId(null); setPostContent(''); setPostMedia(null);}} 
-                  className="px-6 py-4 text-zinc-500 text-[10px] font-black uppercase tracking-widest hover:text-white transition-colors"
-                >
-                  Cancel
-                </button>
-                <button 
-                  onClick={handleCreatePost} 
-                  disabled={isPosting || (!postContent.trim() && !postMedia)} 
-                  className="px-12 py-4 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-30 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all active:scale-95"
-                >
+                <button onClick={() => {setView('lobby'); setEditingPostId(null); setPostContent(''); setPostMedia(null);}} className="px-6 py-4 text-zinc-500 text-[10px] font-black uppercase tracking-widest hover:text-white transition-colors">Cancel</button>
+                <button onClick={handleCreatePost} disabled={isPosting || (!postContent.trim() && !postMedia)} className="px-12 py-4 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-30 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all active:scale-95">
                   {isPosting ? 'Broadcasting...' : editingPostId ? 'Update Vision' : 'Share Vision'}
                 </button>
               </div>
@@ -619,11 +547,6 @@ const SocialFeed: React.FC<SocialFeedProps> = ({ onBack, onProfile, onStartLive,
                 </div>
               </div>
               <h2 className="text-2xl font-serif italic">{aiStatus}...</h2>
-              <div className="h-8 flex items-end justify-center space-x-1">
-                {[...Array(16)].map((_, i) => (
-                  <div key={i} className="w-1 bg-indigo-500/40 rounded-full transition-all" style={{ height: `${2 + (volume * Math.random())}px` }}></div>
-                ))}
-              </div>
             </div>
 
             <div className="absolute bottom-20 left-1/2 -translate-x-1/2 w-full max-w-2xl px-10 text-center">
