@@ -44,6 +44,10 @@ export async function decodeAudioData(
 
 // ---------- API-backed Gemini features ----------
 
+/**
+ * Analyze image + return StoryData JSON.
+ * Backend should return: { data: StoryData }
+ */
 export const analyzeImageAndGhostwrite = async (
   base64: string,
   mimeType: string,
@@ -59,6 +63,9 @@ export const analyzeImageAndGhostwrite = async (
   return res.data;
 };
 
+/**
+ * TTS: backend returns { audioBase64: string }
+ */
 export const generateTTS = async (text: string, voiceName: VoiceName): Promise<string | null> => {
   const res = await postJSON<{ audioBase64?: string }>("/api/tts", { text, voiceName });
   return res.audioBase64 || null;
@@ -73,6 +80,9 @@ export const playTTS = async (base64: string) => {
   source.start();
 };
 
+/**
+ * Pro image: backend returns { dataUrl: string } where dataUrl is "data:image/png;base64,..."
+ */
 export const generateProImage = async (prompt: string, aspectRatio: AspectRatio, imageSize: ImageSize) => {
   const res = await postJSON<{ dataUrl: string | null }>("/api/pro-image", {
     prompt,
@@ -82,10 +92,16 @@ export const generateProImage = async (prompt: string, aspectRatio: AspectRatio,
   return res.dataUrl;
 };
 
+/**
+ * Grounded search: backend returns { text: string, chunks: any[] }
+ */
 export const groundedSearch = async (query: string, language: Language) => {
   return await postJSON<{ text: string; chunks: any[] }>("/api/grounded-search", { query, language });
 };
 
+/**
+ * Chat: backend returns { text: string }
+ */
 export const chatWithGemini = async (
   history: { role: "user" | "model"; text: string }[],
   message: string,
@@ -95,16 +111,25 @@ export const chatWithGemini = async (
   return res.text;
 };
 
+/**
+ * Suggestions: backend returns { suggestions: ConversationSuggestion[] }
+ */
 export const getConversationSuggestions = async (text: string, language: Language): Promise<ConversationSuggestion[]> => {
   const res = await postJSON<{ suggestions: ConversationSuggestion[] }>("/api/suggestions", { text, language });
   return res.suggestions || [];
 };
 
+/**
+ * Edit image: backend returns { dataUrl: string | null }
+ */
 export const editImage = async (base64: string, mimeType: string, prompt: string) => {
   const res = await postJSON<{ dataUrl: string | null }>("/api/edit-image", { base64, mimeType, prompt });
   return res.dataUrl;
 };
 
+/**
+ * Logo: backend returns { dataUrl: string | null }
+ */
 export const generateLogo = async (brandName: string) => {
   const res = await postJSON<{ dataUrl: string | null }>("/api/logo", { brandName });
   return res.dataUrl;
@@ -170,11 +195,15 @@ export async function downloadFromUrl(url: string, filename: string) {
 // Backward-compat exports (keep old components compiling)
 // ------------------------------------------------------------------
 
+/** Stub: kept only because some components still import getAI */
+export const getAI = () => null as any;
+
 export const ensureApiKey = async () => true;
 
 /** No-op: kept only because some components import it */
 export const handleGeminiError = async (_err: any) => false;
 
+/** Optional: if VisualLab imports these, provide server-backed versions */
 export const generateVeoVideo = async (
   prompt: string,
   imageBase64?: string,
