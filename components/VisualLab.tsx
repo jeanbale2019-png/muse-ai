@@ -1,10 +1,11 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 // Fix: Removed non-existent import 'extendVeoVideo'
 import { analyzeImageAndGhostwrite, generateTTS, playTTS, editImage, generateVeoVideo, decode, pcmToWav, triggerDownload, downloadFromUrl, handleGeminiError, ensureApiKey, saveToGallery, getAI, encode, decodeAudioData } from '../services/geminiService';
 import { checkPermission, registerChallengeUsage } from '../services/subscriptionService';
 import { StoryData, AVAILABLE_VOICES, VoiceName, Language, StoryGenre, UserAccount } from '../types';
 import { Modality, LiveServerMessage } from '@google/genai';
+import ShareMenu from './ShareMenu';
+import { i18n } from '../services/i18nService';
 
 interface VisualLabProps {
   language: Language;
@@ -35,7 +36,7 @@ const VisualLab: React.FC<VisualLabProps> = ({ language, user, db }) => {
   const [mimeType, setMimeType] = useState('');
   const [selectedGenre, setSelectedGenre] = useState<StoryGenre>('fantasy');
   const [isProcessing, setIsProcessing] = useState(false);
-  const [processingMessage, setProcessingMessage] = useState('Analyzing Vision...');
+  const [processingMessage, setProcessingMessage] = useState(i18n.t('loading_vision'));
   const [error, setError] = useState<string | null>(null);
   const [story, setStory] = useState<StoryData | null>(null);
   const [editPrompt, setEditPrompt] = useState('');
@@ -47,6 +48,9 @@ const VisualLab: React.FC<VisualLabProps> = ({ language, user, db }) => {
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [activeAnalysisTab, setActiveAnalysisTab] = useState<'narrative' | 'world' | 'sensory' | 'twists'>('narrative');
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Sharing state
+  const [shareData, setShareData] = useState<{title: string, text: string, url?: string, fileData?: string, fileType?: string, fileName?: string} | null>(null);
 
   // Live API State
   const [isLiveActive, setIsLiveActive] = useState(false);
@@ -78,7 +82,7 @@ const VisualLab: React.FC<VisualLabProps> = ({ language, user, db }) => {
       setStory(null);
       setLastAudioBase64(null);
       setIsProcessing(true);
-      setProcessingMessage('Casting initial vision...');
+      setProcessingMessage(i18n.t('loading_vision'));
       setError(null);
       try {
         const result = await analyzeImageAndGhostwrite(base64, file.type, language, selectedGenre);
@@ -97,7 +101,7 @@ const VisualLab: React.FC<VisualLabProps> = ({ language, user, db }) => {
     if (!image || !finalPrompt) return;
     
     setIsProcessing(true);
-    setProcessingMessage('Alchemizing pixels...');
+    setProcessingMessage(i18n.t('loading_alchemy'));
     setError(null);
     try {
       const base64 = image.split(',')[1];
@@ -227,7 +231,7 @@ const VisualLab: React.FC<VisualLabProps> = ({ language, user, db }) => {
   const onAnimate = async () => {
     if (!image) return;
     setIsProcessing(true);
-    setProcessingMessage('Weaving motion vectors...');
+    setProcessingMessage(i18n.t('loading_motion'));
     setError(null);
     try {
       await ensureApiKey(); 
@@ -275,11 +279,32 @@ const VisualLab: React.FC<VisualLabProps> = ({ language, user, db }) => {
     downloadFromUrl(videoUrl, `animation-${Date.now()}.mp4`);
   };
 
+  const onShareStory = () => {
+    if (!story) return;
+    setShareData({
+      title: `A ${selectedGenre} Tale from Social Muse`,
+      text: story.openingParagraph,
+      url: window.location.href
+    });
+  };
+
+  const onShareVideo = async () => {
+    if (!videoUrl) return;
+    // For Video, we try to share the URL directly.
+    setShareData({
+      title: "My AI Animation | Social Muse",
+      text: "Check out this AI-generated animation I created in the Ghostwriter's Studio.",
+      url: videoUrl
+    });
+  };
+
   return (
     <div className="max-w-7xl mx-auto space-y-8 md:space-y-12 animate-in fade-in duration-700 pb-20">
       <div className="text-center space-y-4 max-w-3xl mx-auto px-4">
-        <h2 className="text-4xl md:text-6xl font-serif font-light tracking-tighter text-white leading-none">The <span className="text-indigo-400 italic">Ghostwriter's</span> Studio</h2>
-        <p className="text-zinc-500 text-sm md:text-lg font-light">Cast your vision. Analyze the soul of the scene. Write the future.</p>
+        <h2 className="text-4xl md:text-6xl font-serif font-light tracking-tighter text-white leading-none">
+          {i18n.t('studio_title').split(' ')[0]} <span className="text-indigo-400 italic">{i18n.t('studio_title').split(' ').slice(1).join(' ')}</span>
+        </h2>
+        <p className="text-zinc-500 text-sm md:text-lg font-light">{i18n.t('studio_subtitle')}</p>
         
         {/* Genre Selector */}
         <div className="flex flex-wrap justify-center gap-3 pt-6">
@@ -357,7 +382,7 @@ const VisualLab: React.FC<VisualLabProps> = ({ language, user, db }) => {
                 <label className="text-[10px] font-black uppercase tracking-[0.3em] text-indigo-500">Vision Refinement</label>
                 <div className="flex items-center space-x-2">
                    <button onClick={isLiveActive ? stopLiveDiscussion : startLiveDiscussion} disabled={!image} className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${isLiveActive ? 'bg-rose-600 text-white animate-pulse shadow-lg shadow-rose-600/20' : 'bg-indigo-600/10 text-indigo-400 hover:bg-indigo-600/20 border border-indigo-600/20'}`}>
-                     {isLiveActive ? 'Terminate Session' : 'Consult the Muse'}
+                     {isLiveActive ? 'Terminate Session' : i18n.t('btn_consult')}
                    </button>
                 </div>
               </div>
@@ -384,7 +409,7 @@ const VisualLab: React.FC<VisualLabProps> = ({ language, user, db }) => {
                   <div className="relative group">
                     <input 
                       className="w-full bg-zinc-900/40 border border-zinc-800 rounded-2xl px-6 py-5 text-sm outline-none focus:border-indigo-500/30 transition-all placeholder:text-zinc-700 font-light"
-                      placeholder="e.g. 'Add bioluminescent flowers to the scene'..."
+                      placeholder={i18n.t('placeholder_vision')}
                       value={editPrompt}
                       onChange={e => setEditPrompt(e.target.value)}
                       onKeyDown={e => e.key === 'Enter' && onEdit()}
@@ -394,7 +419,7 @@ const VisualLab: React.FC<VisualLabProps> = ({ language, user, db }) => {
                       disabled={!image || isProcessing || !editPrompt} 
                       className="absolute right-3 top-1/2 -translate-y-1/2 px-5 py-2.5 bg-white text-black hover:bg-zinc-200 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all disabled:opacity-30 active:scale-95 shadow-lg"
                     >
-                      Refine
+                      {i18n.t('btn_refine')}
                     </button>
                   </div>
                 </div>
@@ -429,19 +454,28 @@ const VisualLab: React.FC<VisualLabProps> = ({ language, user, db }) => {
                 ) : (
                   <>
                     <i className="fa-solid fa-clapperboard"></i>
-                    <span>{videoUrl ? 'Regenerate Animation' : 'Animate Narrative Frame'}</span>
+                    <span>{videoUrl ? 'Regenerate Animation' : i18n.t('btn_animate')}</span>
                   </>
                 )}
               </button>
               
               {videoUrl && (
-                <button 
-                  onClick={onDownloadVideo}
-                  className="w-full py-4 bg-emerald-600/10 text-emerald-400 border border-emerald-500/20 rounded-3xl font-black uppercase text-[9px] tracking-[0.2em] hover:bg-emerald-600/20 transition-all flex items-center justify-center space-x-3 active:scale-95 shadow-xl"
-                >
-                  <i className="fa-solid fa-file-video text-xs"></i>
-                  <span>Export MP4 Animation</span>
-                </button>
+                <div className="grid grid-cols-2 gap-3">
+                  <button 
+                    onClick={onDownloadVideo}
+                    className="py-4 bg-emerald-600/10 text-emerald-400 border border-emerald-500/20 rounded-3xl font-black uppercase text-[9px] tracking-[0.2em] hover:bg-emerald-600/20 transition-all flex items-center justify-center space-x-3 active:scale-95 shadow-xl"
+                  >
+                    <i className="fa-solid fa-file-video text-xs"></i>
+                    <span>{i18n.t('btn_export')}</span>
+                  </button>
+                  <button 
+                    onClick={onShareVideo}
+                    className="py-4 bg-indigo-600/10 text-indigo-400 border border-indigo-500/20 rounded-3xl font-black uppercase text-[9px] tracking-[0.2em] hover:bg-indigo-600/20 transition-all flex items-center justify-center space-x-3 active:scale-95 shadow-xl"
+                  >
+                    <i className="fa-solid fa-share-nodes text-xs"></i>
+                    <span>{i18n.t('btn_share')}</span>
+                  </button>
+                </div>
               )}
             </div>
           </div>
@@ -452,16 +486,26 @@ const VisualLab: React.FC<VisualLabProps> = ({ language, user, db }) => {
           {story ? (
             <div className="flex flex-col space-y-8 animate-in slide-in-from-right-8 duration-700">
               {/* Studio Header & Analysis Selection */}
-              <div className="glass p-1.5 rounded-2xl border border-white/5 flex items-center space-x-1 shadow-lg bg-black/40 self-start overflow-x-auto no-scrollbar">
-                {(['narrative', 'world', 'sensory', 'twists'] as const).map(tab => (
-                  <button 
-                    key={tab}
-                    onClick={() => setActiveAnalysisTab(tab)}
-                    className={`px-5 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeAnalysisTab === tab ? 'bg-indigo-600 text-white shadow-lg' : 'text-zinc-500 hover:text-zinc-300'}`}
-                  >
-                    {tab}
-                  </button>
-                ))}
+              <div className="flex justify-between items-center">
+                <div className="glass p-1.5 rounded-2xl border border-white/5 flex items-center space-x-1 shadow-lg bg-black/40 self-start overflow-x-auto no-scrollbar">
+                  {(['narrative', 'world', 'sensory', 'twists'] as const).map(tab => (
+                    <button 
+                      key={tab}
+                      onClick={() => setActiveAnalysisTab(tab)}
+                      className={`px-5 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeAnalysisTab === tab ? 'bg-indigo-600 text-white shadow-lg' : 'text-zinc-500 hover:text-zinc-300'}`}
+                    >
+                      {i18n.t(`tab_${tab}`)}
+                    </button>
+                  ))}
+                </div>
+                
+                <button 
+                  onClick={onShareStory}
+                  className="p-4 glass rounded-2xl text-zinc-400 hover:text-indigo-400 transition-colors shadow-lg border border-white/5 active:scale-90"
+                  title="Share Narrative"
+                >
+                  <i className="fa-solid fa-share-nodes"></i>
+                </button>
               </div>
 
               {/* Manuscript Content */}
@@ -578,7 +622,7 @@ const VisualLab: React.FC<VisualLabProps> = ({ language, user, db }) => {
                 {/* Narrative Controls Footer */}
                 <div className="pt-12 border-t border-white/5 flex flex-col sm:flex-row items-center justify-between gap-8">
                   <div className="flex flex-col items-center sm:items-start space-y-3 w-full sm:w-auto">
-                    <span className="text-[9px] uppercase font-black tracking-widest text-zinc-600">Narrator Persona</span>
+                    <span className="text-[9px] uppercase font-black tracking-widest text-zinc-600">{i18n.t('voice_persona')}</span>
                     <select 
                       className="w-full sm:w-auto bg-zinc-900/60 text-[10px] font-black px-5 py-2.5 rounded-xl border border-zinc-800 focus:outline-none uppercase tracking-widest hover:border-indigo-500/30 transition-all"
                       value={selectedVoice}
@@ -632,7 +676,7 @@ const VisualLab: React.FC<VisualLabProps> = ({ language, user, db }) => {
                   className="px-6 py-3 bg-zinc-900 border border-zinc-800 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-zinc-800/80 transition-all active:scale-95 flex items-center space-x-3"
                  >
                    <i className={`fa-solid ${savedSuccess ? 'fa-check text-emerald-500' : 'fa-bookmark text-zinc-500'}`}></i>
-                   <span>{savedSuccess ? 'Vision Saved' : 'Archive Vision'}</span>
+                   <span>{savedSuccess ? 'Vision Saved' : i18n.t('btn_save')}</span>
                  </button>
               </div>
             </div>
@@ -641,13 +685,21 @@ const VisualLab: React.FC<VisualLabProps> = ({ language, user, db }) => {
               <div className="w-24 h-24 mb-8 bg-zinc-900/40 rounded-full flex items-center justify-center border border-zinc-800 shadow-inner group">
                  <i className="fa-solid fa-feather-pointed text-4xl opacity-10 group-hover:opacity-40 transition-opacity"></i>
               </div>
-              <h3 className="text-2xl font-serif mb-3 text-zinc-600">The Script Awaits</h3>
-              <p className="text-[10px] max-w-xs mx-auto opacity-50 uppercase tracking-[0.3em] leading-loose font-bold italic">"Every masterpiece begins with a single focused vision."</p>
+              <h3 className="text-2xl font-serif mb-3 text-zinc-600">{i18n.t('vault_empty')}</h3>
+              <p className="text-[10px] max-w-xs mx-auto opacity-50 uppercase tracking-[0.3em] leading-loose font-bold italic">"{i18n.t('vault_subtitle')}"</p>
               <p className="text-[9px] mt-6 text-indigo-400/50 font-black uppercase tracking-widest">Select a genre above and upload an image to begin.</p>
             </div>
           )}
         </div>
       </div>
+
+      {/* Share Modal */}
+      {shareData && (
+        <ShareMenu 
+          {...shareData} 
+          onClose={() => setShareData(null)} 
+        />
+      )}
 
       {/* Narrative Generation Overlay */}
       {isProcessing && (

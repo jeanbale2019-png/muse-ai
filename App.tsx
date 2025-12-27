@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import VisualLab from './components/VisualLab';
 import CreationSuite from './components/CreationSuite';
@@ -199,6 +198,17 @@ const App: React.FC = () => {
                 currentLanguage={language} 
                 onLanguageChange={handleLanguageChange} 
               />
+              
+              {!user && (
+                <button 
+                  onClick={() => setIsAccessLocked(true)}
+                  className="hidden sm:flex px-6 py-2.5 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white rounded-full font-black uppercase text-[10px] tracking-widest shadow-lg shadow-indigo-600/30 transition-all transform hover:scale-105 active:scale-95 items-center space-x-2 border border-white/10"
+                >
+                  <span>Get Started</span>
+                  <i className="fa-solid fa-arrow-right"></i>
+                </button>
+              )}
+
               <button 
                 onClick={() => handleTabChange('profile')}
                 className="w-10 h-10 rounded-full border border-indigo-500/30 overflow-hidden ring-2 ring-indigo-500/20 hover:ring-indigo-500/50 transition-all shadow-lg active:scale-90"
