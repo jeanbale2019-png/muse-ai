@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
+
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import VisualLab from './components/VisualLab';
 import CreationSuite from './components/CreationSuite';
 import LiveVoiceChat from './components/LiveVoiceChat';
@@ -13,8 +14,8 @@ import ChatBot from './components/ChatBot';
 import AccessControl from './components/AccessControl';
 import LanguageSelector from './components/LanguageSelector';
 import { Tab, Language, SUPPORTED_LANGUAGES, UserAccount } from './types';
-import { generateTTS, playTTS } from './services/geminiService';
 import { i18n } from './services/i18nService';
+import { UserFriendlyError } from './services/geminiService';
 import { initializeApp } from 'firebase/app';
 import { getFirestore, doc, onSnapshot, updateDoc } from 'firebase/firestore';
 
@@ -26,6 +27,9 @@ const App: React.FC = () => {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [sidebarExpanded, setSidebarExpanded] = useState(true);
   const [targetProfileId, setTargetProfileId] = useState<string | null>(null);
+
+  // Toast State
+  const [toast, setToast] = useState<UserFriendlyError | null>(null);
 
   // SaaS States
   const [user, setUser] = useState<UserAccount | null>(() => {
@@ -46,6 +50,17 @@ const App: React.FC = () => {
     }
   }, []);
 
+  // Global Toast Listener
+  useEffect(() => {
+    const handleToast = (e: any) => {
+      setToast(e.detail);
+      const timer = setTimeout(() => setToast(null), 8000);
+      return () => clearTimeout(timer);
+    };
+    window.addEventListener('muse-toast', handleToast);
+    return () => window.removeEventListener('muse-toast', handleToast);
+  }, []);
+
   // Sync Language and i18n
   useEffect(() => {
     const sync = async () => {
@@ -56,7 +71,6 @@ const App: React.FC = () => {
     sync();
   }, [language]);
 
-  // Handle language change and persist to Firestore
   const handleLanguageChange = async (newLang: Language) => {
     setLanguage(newLang);
     if (user && db) {
@@ -77,7 +91,6 @@ const App: React.FC = () => {
     localStorage.setItem('muse_user', JSON.stringify(updatedUser));
   };
 
-  // REAL-TIME SUBSCRIPTION & PREFERENCES MONITORING
   useEffect(() => {
     if (!user || !db) return;
 
@@ -85,21 +98,17 @@ const App: React.FC = () => {
     const unsub = onSnapshot(userRef, (doc) => {
       if (doc.exists()) {
         const newData = doc.data() as UserAccount;
-        
-        // Auto-sync language if changed remotely or at login
         if (newData.language && newData.language !== language) {
           setLanguage(newData.language);
         }
-
         setUser(newData);
         localStorage.setItem('muse_user', JSON.stringify(newData));
       }
     });
 
     return () => unsub();
-  }, [db, user?.id]);
+  }, [db, user?.id, language]);
 
-  // LOGIQUE DU TIMER PERSISTANT
   useEffect(() => {
     if (user) return; 
     const TRIAL_LIMIT = 120000; 
@@ -139,10 +148,45 @@ const App: React.FC = () => {
   return (
     <div className="min-h-screen bg-[#09090b] text-[#f8fafc] flex flex-col md:flex-row overflow-x-hidden">
       
+      {/* Global Toast Component */}
+      {toast && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[300] w-full max-w-md px-4 animate-in slide-in-from-top-4 duration-500">
+          <div className={`glass p-5 rounded-[2rem] border shadow-2xl flex items-start space-x-4 ${
+            toast.type === 'error' ? 'border-rose-500/30 bg-rose-500/5' : 
+            toast.type === 'warning' ? 'border-amber-500/30 bg-amber-500/5' : 
+            'border-indigo-500/30 bg-indigo-500/5'
+          }`}>
+            <div className={`w-10 h-10 rounded-2xl flex items-center justify-center flex-shrink-0 ${
+              toast.type === 'error' ? 'bg-rose-500/10 text-rose-500' : 
+              toast.type === 'warning' ? 'bg-amber-500/10 text-amber-500' : 
+              'bg-indigo-500/10 text-indigo-500'
+            }`}>
+              <i className={`fa-solid ${
+                toast.type === 'error' ? 'fa-circle-exclamation' : 
+                toast.type === 'warning' ? 'fa-triangle-exclamation' : 
+                'fa-circle-info'
+              }`}></i>
+            </div>
+            <div className="flex-1 space-y-1">
+              <h4 className={`text-xs font-black uppercase tracking-widest ${
+                toast.type === 'error' ? 'text-rose-400' : 
+                toast.type === 'warning' ? 'text-amber-400' : 
+                'text-indigo-400'
+              }`}>{toast.message}</h4>
+              <p className="text-[11px] text-zinc-400 leading-relaxed font-medium">{toast.suggestion}</p>
+            </div>
+            <button onClick={() => setToast(null)} className="text-zinc-600 hover:text-white transition-colors">
+              <i className="fa-solid fa-xmark text-sm"></i>
+            </button>
+          </div>
+        </div>
+      )}
+
       <AccessControl 
         isOpen={isAccessLocked} 
         onAuthComplete={(newUser) => {
           setUser(newUser);
+          // Fixed: Changed 'newData' to 'newUser' to resolve the Cannot find name error.
           if (newUser.language) setLanguage(newUser.language);
           setIsAccessLocked(false);
           localStorage.setItem('muse_user', JSON.stringify(newUser));

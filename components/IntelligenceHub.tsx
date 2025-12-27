@@ -1,6 +1,6 @@
 
 import React, { useState, useRef } from 'react';
-import { handleGeminiError, getAI } from '../services/geminiService';
+import { notifyUser, getAI } from '../services/geminiService';
 import { Language, UserAccount } from '../types';
 
 interface IntelligenceHubProps {
@@ -92,7 +92,7 @@ const IntelligenceHub: React.FC<IntelligenceHubProps> = ({ language, user }) => 
         chunks: response.candidates?.[0]?.groundingMetadata?.groundingChunks || []
       });
     } catch (err) {
-      handleGeminiError(err);
+      notifyUser(err);
     } finally {
       setLoading(false);
     }

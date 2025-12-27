@@ -6,22 +6,20 @@
     "module": "ESNext",
     "skipLibCheck": true,
 
-    "moduleResolution": "Bundler",
+    /* Bundler mode */
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "react-jsx",
-    "strict": true
+
+    /* Linting */
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true
   },
-  "include": [
-    "src",
-    "vite.config.ts",
-    "env.d.ts"
-  ],
-  "exclude": [
-    "node_modules",
-    "dist",
-    "server.cjs",
-    "server.js"
-  ]
+  "include": ["src", "**/*.ts", "**/*.tsx"],
+  "exclude": ["node_modules", "dist", "server.js"]
 }

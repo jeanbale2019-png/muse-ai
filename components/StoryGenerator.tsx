@@ -1,5 +1,5 @@
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { analyzeImageAndGhostwrite, generateTTS, playTTS, decode, pcmToWav, triggerDownload } from '../services/geminiService';
 import { StoryData, AVAILABLE_VOICES, VoiceName } from '../types';
 
@@ -10,7 +10,16 @@ const StoryGenerator: React.FC = () => {
   const [story, setStory] = useState<StoryData | null>(null);
   const [selectedVoice, setSelectedVoice] = useState<VoiceName>('Kore');
   const [lastAudioBase64, setLastAudioBase64] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Auto-hide error after 8 seconds
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => setError(null), 8000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -22,12 +31,13 @@ const StoryGenerator: React.FC = () => {
       setImage(reader.result as string);
       setIsAnalyzing(true);
       setLastAudioBase64(null);
+      setError(null);
       try {
         const result = await analyzeImageAndGhostwrite(base64, file.type);
         setStory(result);
-      } catch (err) {
+      } catch (err: any) {
         console.error(err);
-        alert("Failed to analyze image. Ensure your API key is valid.");
+        setError(err.message || "Failed to analyze image. Please check your connection and try again.");
       } finally {
         setIsAnalyzing(false);
       }
@@ -38,14 +48,18 @@ const StoryGenerator: React.FC = () => {
   const handleReadAloud = async () => {
     if (!story) return;
     setIsReading(true);
+    setError(null);
     try {
       const base64 = await generateTTS(story.openingParagraph, selectedVoice);
       if (base64) {
         setLastAudioBase64(base64);
         await playTTS(base64);
+      } else {
+        setError("Speech synthesis returned no audio. The TTS service might be temporarily unavailable.");
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      setError("Failed to narrate the story. Please try a different voice or try again later.");
     } finally {
       setIsReading(false);
     }
@@ -61,11 +75,29 @@ const StoryGenerator: React.FC = () => {
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in duration-700">
+    <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in duration-700 relative">
       <div className="text-center space-y-4">
         <h1 className="text-5xl font-serif font-light tracking-tight text-white">Muse <span className="text-blue-400">&</span> Vision</h1>
         <p className="text-zinc-400 text-lg">Upload an image to spark a world-building opening.</p>
       </div>
+
+      {/* Error Display Area */}
+      {error && (
+        <div className="animate-in slide-in-from-top-4 duration-300">
+          <div className="glass bg-rose-500/10 border border-rose-500/20 rounded-2xl p-4 flex items-center justify-between shadow-lg shadow-rose-900/10">
+            <div className="flex items-center space-x-3 text-rose-400">
+              <i className="fa-solid fa-triangle-exclamation"></i>
+              <p className="text-sm font-medium">{error}</p>
+            </div>
+            <button 
+              onClick={() => setError(null)}
+              className="text-zinc-500 hover:text-white transition-colors p-1"
+            >
+              <i className="fa-solid fa-xmark"></i>
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
         <div className="space-y-4">
