@@ -1,6 +1,6 @@
 
 import React, { useState, useRef } from 'react';
-import { handleGeminiError, getAI, ensureApiKey } from '../services/geminiService';
+import { handleGeminiError, getAI } from '../services/geminiService';
 import { Language, UserAccount } from '../types';
 
 interface IntelligenceHubProps {
@@ -14,7 +14,6 @@ const IntelligenceHub: React.FC<IntelligenceHubProps> = ({ language, user }) => 
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
-  const [error, setError] = useState<string | null>(null);
   const [activeTools, setActiveTools] = useState<Set<TerminalTool>>(new Set(['search']));
   const [attachedMedia, setAttachedMedia] = useState<{data: string, mimeType: string} | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -24,7 +23,6 @@ const IntelligenceHub: React.FC<IntelligenceHubProps> = ({ language, user }) => 
     if (newTools.has(tool)) newTools.delete(tool);
     else newTools.add(tool);
     setActiveTools(newTools);
-    setError(null);
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -46,20 +44,16 @@ const IntelligenceHub: React.FC<IntelligenceHubProps> = ({ language, user }) => 
     if (!query && !attachedMedia) return;
     setLoading(true);
     setResult(null);
-    setError(null);
 
     try {
+      const ai = getAI();
       const isDeepThink = activeTools.has('think');
       const isMaps = activeTools.has('maps');
       const isSearch = activeTools.has('search');
 
-      if (isDeepThink || isMaps) {
-        await ensureApiKey();
-      }
-
-      const ai = getAI();
+      // Model Selection Logic based on Tool capabilities
       let modelName = 'gemini-3-flash-preview';
-      if (isMaps) modelName = 'gemini-2.5-flash'; 
+      if (isMaps) modelName = 'gemini-2.5-flash'; // Required for Maps grounding
       else if (isDeepThink) modelName = 'gemini-3-pro-preview';
 
       let latLng = undefined;
@@ -70,8 +64,7 @@ const IntelligenceHub: React.FC<IntelligenceHubProps> = ({ language, user }) => 
           );
           latLng = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
         } catch (e) {
-          console.warn("Location access denied or unavailable.");
-          // We don't block the request if maps is still desired, but it will be less accurate
+          console.warn("Location access unavailable for Maps grounding.");
         }
       }
 
@@ -79,12 +72,7 @@ const IntelligenceHub: React.FC<IntelligenceHubProps> = ({ language, user }) => 
       if (attachedMedia) {
         contents.push({ inlineData: { data: attachedMedia.data, mimeType: attachedMedia.mimeType } });
       }
-      
-      const finalPrompt = isMaps 
-        ? `Focus on geospatial and location data: ${query}. Respond in ${language}. Use markdown.`
-        : `${query}. Respond in ${language}. Use markdown.`;
-
-      contents.push({ text: finalPrompt });
+      contents.push({ text: `${query}. Respond in ${language}. Use markdown for formatting.` });
 
       const response = await ai.models.generateContent({
         model: modelName,
@@ -103,8 +91,8 @@ const IntelligenceHub: React.FC<IntelligenceHubProps> = ({ language, user }) => 
         text: response.text,
         chunks: response.candidates?.[0]?.groundingMetadata?.groundingChunks || []
       });
-    } catch (err: any) {
-      setError(err.message || "La requête au terminal a échoué.");
+    } catch (err) {
+      handleGeminiError(err);
     } finally {
       setLoading(false);
     }
@@ -114,17 +102,15 @@ const IntelligenceHub: React.FC<IntelligenceHubProps> = ({ language, user }) => 
     <div className="min-h-[85vh] flex flex-col items-center justify-center p-4 md:p-8 space-y-16 animate-in fade-in duration-1000">
       
       {/* Intelligence Terminal Container */}
-      <div className="w-full max-w-4xl glass rounded-[3.5rem] border border-white/10 bg-[#0c0c0e]/95 shadow-[0_50px_150px_rgba(0,0,0,0.9)] overflow-hidden flex flex-col">
+      <div className="w-full max-w-4xl glass rounded-[3.5rem] border border-white/10 bg-[#0c0c0e]/90 shadow-[0_50px_150px_rgba(0,0,0,0.9)] overflow-hidden flex flex-col">
         
         {/* Terminal Header */}
-        <div className="px-12 py-10 border-b border-white/5 flex items-center justify-between bg-white/[0.02]">
+        <div className="px-12 py-10 border-b border-white/5 flex items-center justify-between">
           <div className="flex flex-col">
             <span className="text-[11px] font-black uppercase tracking-[0.5em] text-indigo-500 mb-1 font-mono">Intelligence Terminal</span>
             <div className="flex items-center space-x-2">
-               <div className={`w-1.5 h-1.5 rounded-full ${activeTools.has('maps') ? 'bg-emerald-500' : 'bg-indigo-500'} animate-pulse`}></div>
-               <span className="text-[9px] font-bold text-zinc-600 uppercase tracking-widest font-mono">
-                 {activeTools.has('maps') ? 'Geospatial Node Active' : 'Session Active'} • v3.1.0
-               </span>
+               <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse"></div>
+               <span className="text-[9px] font-bold text-zinc-600 uppercase tracking-widest font-mono">Session Active • v2.9.0</span>
             </div>
           </div>
           <div className="flex space-x-1.5 opacity-20">
@@ -134,26 +120,13 @@ const IntelligenceHub: React.FC<IntelligenceHubProps> = ({ language, user }) => 
           </div>
         </div>
 
-        {/* Error Display */}
-        {error && (
-          <div className="mx-12 mt-8 animate-in slide-in-from-top-4">
-             <div className="bg-rose-500/10 border border-rose-500/20 p-5 rounded-2xl flex items-center space-x-4 text-rose-400">
-                <i className="fa-solid fa-circle-exclamation"></i>
-                <div className="flex-1 text-[10px] font-bold uppercase tracking-widest">{error}</div>
-                <button onClick={() => setError(null)} className="text-zinc-500 hover:text-white transition-colors">
-                  <i className="fa-solid fa-xmark"></i>
-                </button>
-             </div>
-          </div>
-        )}
-
         {/* Input Textarea */}
         <div className="p-12 space-y-10 flex-1">
           <textarea 
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && executeTerminalQuery()}
-            placeholder={activeTools.has('maps') ? "Search places, landmarks, or addresses..." : "Ask, analyze, or explore..."}
+            placeholder="Ask, analyze, or explore..."
             className="w-full bg-transparent text-4xl md:text-6xl font-serif italic text-white outline-none resize-none placeholder:text-zinc-800 leading-tight min-h-[180px] scrollbar-hide"
           />
 
@@ -172,7 +145,7 @@ const IntelligenceHub: React.FC<IntelligenceHubProps> = ({ language, user }) => 
             </div>
           )}
 
-          {/* Action Grid */}
+          {/* Action Grid matching screenshot */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 pt-6">
             <div className="flex flex-col xs:flex-row gap-4">
               <button 
@@ -183,7 +156,7 @@ const IntelligenceHub: React.FC<IntelligenceHubProps> = ({ language, user }) => 
               </button>
               <button 
                 onClick={() => toggleTool('maps')}
-                className={`px-8 py-5 rounded-[1.5rem] text-[10px] font-black uppercase tracking-[0.2em] transition-all border ${activeTools.has('maps') ? 'bg-emerald-600 text-white border-transparent shadow-[0_10px_30px_rgba(16,185,129,0.3)]' : 'bg-white/5 text-zinc-500 border-white/5 hover:border-white/20 hover:text-zinc-300'}`}
+                className={`px-8 py-5 rounded-[1.5rem] text-[10px] font-black uppercase tracking-[0.2em] transition-all border ${activeTools.has('maps') ? 'bg-indigo-600 text-white border-transparent shadow-[0_10px_30px_rgba(79,70,229,0.3)]' : 'bg-white/5 text-zinc-500 border-white/5 hover:border-white/20 hover:text-zinc-300'}`}
               >
                 Maps Data
               </button>
@@ -212,10 +185,7 @@ const IntelligenceHub: React.FC<IntelligenceHubProps> = ({ language, user }) => 
         {/* Neural Processing Progress */}
         {loading && (
           <div className="h-1.5 w-full bg-zinc-900 overflow-hidden relative">
-             <div className={`h-full ${activeTools.has('maps') ? 'bg-emerald-500' : 'bg-indigo-500'} w-1/4 animate-[terminal-shimmer_1.5s_infinite_linear] shadow-[0_0_15px_rgba(79,70,229,0.8)]`}></div>
-             {activeTools.has('maps') && (
-               <div className="absolute top-4 left-1/2 -translate-x-1/2 text-[8px] font-black uppercase tracking-[0.4em] text-emerald-500/40">Scanning Geospatial Grid...</div>
-             )}
+             <div className="h-full bg-indigo-500 w-1/4 animate-[terminal-shimmer_1.5s_infinite_linear] shadow-[0_0_15px_rgba(79,70,229,0.8)]"></div>
           </div>
         )}
 
@@ -229,11 +199,9 @@ const IntelligenceHub: React.FC<IntelligenceHubProps> = ({ language, user }) => 
              </div>
 
              {result.chunks && result.chunks.length > 0 && (
-               <div className="mt-16 space-y-10">
+               <div className="mt-16 space-y-6">
                   <span className="text-[10px] font-black uppercase tracking-[0.5em] text-zinc-600 font-mono">Neural Verification Nodes</span>
-                  
-                  {/* Specialized Maps View */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="flex flex-wrap gap-4">
                     {result.chunks.map((chunk: any, i: number) => (
                       <div key={i}>
                         {chunk.web && (
@@ -241,67 +209,22 @@ const IntelligenceHub: React.FC<IntelligenceHubProps> = ({ language, user }) => 
                             href={chunk.web.uri} 
                             target="_blank" 
                             rel="noopener noreferrer" 
-                            className="flex items-center space-x-4 px-6 py-4 bg-white/5 border border-white/5 rounded-[2rem] hover:bg-white/10 transition-all group w-full"
+                            className="flex items-center space-x-4 px-6 py-3 bg-white/5 border border-white/5 rounded-2xl hover:bg-white/10 transition-all group"
                           >
                              <i className="fa-solid fa-link text-[10px] text-indigo-400 group-hover:rotate-12 transition-transform"></i>
-                             <span className="text-[10px] font-black uppercase tracking-widest text-zinc-400 group-hover:text-white transition-colors truncate">{chunk.web.title || "External Intelligence"}</span>
+                             <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500 group-hover:text-white transition-colors">{chunk.web.title || "Link"}</span>
                           </a>
                         )}
                         {chunk.maps && (
-                           <div className="p-6 bg-emerald-500/[0.03] border border-emerald-500/10 rounded-[2.5rem] space-y-4 hover:border-emerald-500/30 transition-all group">
-                             <div className="flex justify-between items-start">
-                               <div className="flex items-center space-x-3">
-                                 <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-400 group-hover:scale-110 transition-transform">
-                                   <i className="fa-solid fa-location-dot"></i>
-                                 </div>
-                                 <div className="flex flex-col">
-                                   <h4 className="text-xs font-black uppercase tracking-widest text-emerald-400">{chunk.maps.title || "Point of Interest"}</h4>
-                                   <span className="text-[8px] font-bold text-zinc-600 uppercase tracking-tighter">Verified Geospatial Node</span>
-                                 </div>
-                               </div>
-                               <a 
-                                 href={chunk.maps.uri} 
-                                 target="_blank" 
-                                 rel="noopener noreferrer" 
-                                 className="text-zinc-500 hover:text-white transition-colors"
-                               >
-                                 <i className="fa-solid fa-arrow-up-right-from-square text-xs"></i>
-                               </a>
-                             </div>
-
-                             {/* Render Place Details if available */}
-                             {chunk.maps.placeAnswerSources && chunk.maps.placeAnswerSources.length > 0 && (
-                               <div className="space-y-3 pt-2">
-                                 {chunk.maps.placeAnswerSources.map((source: any, j: number) => (
-                                   <div key={j} className="space-y-2">
-                                     {source.formattedAddress && (
-                                       <p className="text-[10px] text-zinc-500 font-medium">
-                                         <i className="fa-solid fa-map-pin mr-2 text-[8px]"></i>
-                                         {source.formattedAddress}
-                                       </p>
-                                     )}
-                                     {source.reviewSnippets && source.reviewSnippets.length > 0 && (
-                                       <div className="p-4 bg-white/[0.02] rounded-2xl border border-white/5 italic font-serif text-[11px] text-zinc-400 leading-relaxed">
-                                         "{source.reviewSnippets[0].text || source.reviewSnippets[0]}"
-                                       </div>
-                                     )}
-                                   </div>
-                                 ))}
-                               </div>
-                             )}
-
-                             <div className="pt-2 flex items-center space-x-3">
-                                <a 
-                                  href={chunk.maps.uri} 
-                                  target="_blank" 
-                                  rel="noopener noreferrer" 
-                                  className="px-4 py-2 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-[8px] font-black uppercase text-emerald-400 hover:bg-emerald-500 hover:text-white transition-all"
-                                >
-                                  Open Navigation
-                                </a>
-                                <span className="text-[8px] font-black text-zinc-700 uppercase tracking-widest">Grounding Reference: {i + 1}</span>
-                             </div>
-                           </div>
+                           <a 
+                            href={chunk.maps.uri} 
+                            target="_blank" 
+                            rel="noopener noreferrer" 
+                            className="flex items-center space-x-4 px-6 py-3 bg-indigo-500/10 border border-indigo-500/20 rounded-2xl hover:bg-indigo-500/20 transition-all group"
+                          >
+                             <i className="fa-solid fa-location-dot text-[10px] text-indigo-400"></i>
+                             <span className="text-[10px] font-black uppercase tracking-widest text-indigo-300">{chunk.maps.title || "Location"}</span>
+                          </a>
                         )}
                       </div>
                     ))}
@@ -312,7 +235,7 @@ const IntelligenceHub: React.FC<IntelligenceHubProps> = ({ language, user }) => 
         )}
       </div>
 
-      {/* Terminal Footer Navigation */}
+      {/* Terminal Footer Navigation (from screenshot) */}
       <div className="flex flex-wrap items-center justify-center gap-10 md:gap-20 pb-10 opacity-40">
         <button className="text-[11px] font-black uppercase tracking-[0.4em] hover:opacity-100 hover:text-indigo-400 cursor-pointer transition-all font-mono">Protocol</button>
         <button className="text-[11px] font-black uppercase tracking-[0.4em] hover:opacity-100 hover:text-indigo-400 cursor-pointer transition-all font-mono">Identity</button>

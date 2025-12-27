@@ -1,7 +1,7 @@
-
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { generateProImage, generateVeoVideo, generateLogo, triggerDownload, downloadFromUrl, getAI, handleGeminiError, generateTTS, decode, decodeAudioData, saveToGallery, getGallery, playTTS, pcmToWav } from '../services/geminiService';
 import { AspectRatio, ImageSize, VoiceName, Language, UI_TRANSLATIONS, AVAILABLE_VOICES, UserAccount } from '../types';
+import ShareMenu from './ShareMenu';
 
 interface CreationSuiteProps {
   language: Language;
@@ -49,6 +49,9 @@ const CreationSuite: React.FC<CreationSuiteProps> = ({ language, user }) => {
   const [savedCreations, setSavedCreations] = useState<GalleryItem[]>([]);
   const [showSavedToast, setShowSavedToast] = useState(false);
   
+  // Sharing state
+  const [shareData, setShareData] = useState<{title: string, text: string, url?: string, fileData?: string, fileType?: string, fileName?: string} | null>(null);
+
   const initialFileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -206,6 +209,26 @@ const CreationSuite: React.FC<CreationSuiteProps> = ({ language, user }) => {
     URL.revokeObjectURL(url);
   };
 
+  const handleShareImage = () => {
+    if (!resultImage) return;
+    setShareData({
+      title: "Generated Masterpiece | Social Muse",
+      text: prompt.substring(0, 100) + "...",
+      fileData: resultImage.split(',')[1],
+      fileType: "image/png",
+      fileName: "muse-still.png"
+    });
+  };
+
+  const handleShareVideo = () => {
+    if (!resultVideo) return;
+    setShareData({
+      title: "Cinematic Animation | Social Muse",
+      text: prompt.substring(0, 100) + "...",
+      url: resultVideo
+    });
+  };
+
   return (
     <div className="max-w-7xl mx-auto space-y-8 animate-in fade-in duration-700 pb-40 text-white px-4">
       <div className="text-center space-y-6">
@@ -255,9 +278,14 @@ const CreationSuite: React.FC<CreationSuiteProps> = ({ language, user }) => {
                       <p className="text-[10px] text-zinc-400 line-clamp-2 italic">"{item.prompt}"</p>
                       <div className="flex justify-between items-center">
                          <span className="text-[8px] text-zinc-600 font-bold uppercase">{new Date(item.timestamp).toLocaleDateString()}</span>
-                         <button onClick={() => item.type === 'video' ? downloadFromUrl(item.url, `muse-video-${item.id}.mp4`) : triggerDownload(item.url, `muse-still-${item.id}.png`)} className="text-zinc-400 hover:text-white transition-colors">
-                           <i className="fa-solid fa-download"></i>
-                         </button>
+                         <div className="flex space-x-2">
+                            <button onClick={() => setShareData({title: 'My AI Art', text: item.prompt, url: item.url})} className="text-zinc-500 hover:text-indigo-400 transition-colors">
+                              <i className="fa-solid fa-share-nodes"></i>
+                            </button>
+                            <button onClick={() => item.type === 'video' ? downloadFromUrl(item.url, `muse-video-${item.id}.mp4`) : triggerDownload(item.url, `muse-still-${item.id}.png`)} className="text-zinc-500 hover:text-white transition-colors">
+                              <i className="fa-solid fa-download"></i>
+                            </button>
+                         </div>
                       </div>
                    </div>
                  </div>
@@ -284,6 +312,9 @@ const CreationSuite: React.FC<CreationSuiteProps> = ({ language, user }) => {
                   <div className="flex items-center space-x-4">
                     <button onClick={handleDownloadLogo} className="px-8 py-3 bg-zinc-900 border border-zinc-800 text-zinc-400 rounded-xl text-[10px] font-black uppercase tracking-widest hover:text-white transition-all">
                        Export PNG
+                    </button>
+                    <button onClick={() => setShareData({title: 'New Identity', text: `Forged "${prompt}" brand identity with Social Muse.`, fileData: resultLogo.split(',')[1], fileType: 'image/png', fileName: 'logo.png'})} className="px-4 py-3 bg-indigo-600/10 text-indigo-400 border border-indigo-500/20 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-600/20 transition-all">
+                       <i className="fa-solid fa-share-nodes"></i>
                     </button>
                     <button onClick={() => handleSaveToGallery('logo', resultLogo)} className="px-8 py-3 bg-indigo-600/10 text-indigo-400 border border-indigo-500/20 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-600/20 transition-all">
                        Save to Vault
@@ -448,14 +479,18 @@ const CreationSuite: React.FC<CreationSuiteProps> = ({ language, user }) => {
            {resultImage && (
              <div className="glass p-8 rounded-[3rem] space-y-6 bg-black/40 border-white/5 relative group">
                 <img src={resultImage} className="w-full aspect-video object-cover rounded-2xl shadow-2xl" alt="Result" />
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-3 gap-3">
                   <button onClick={handleDownloadImage} className="py-4 bg-zinc-800 text-white rounded-xl font-black uppercase text-[10px] tracking-widest flex items-center justify-center space-x-2 hover:bg-zinc-700 transition-colors active:scale-95">
                     <i className="fa-solid fa-download"></i>
-                    <span>Export PNG</span>
+                    <span className="hidden sm:inline">Export</span>
                   </button>
-                  <button onClick={() => handleSaveToGallery('image', resultImage!)} className="w-full py-4 bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 rounded-xl font-black uppercase text-[10px] tracking-widest flex items-center justify-center space-x-2 hover:bg-indigo-500/20 active:scale-95 transition-all">
+                  <button onClick={handleShareImage} className="py-4 bg-indigo-600/10 text-indigo-400 border border-indigo-500/20 rounded-xl font-black uppercase text-[10px] tracking-widest flex items-center justify-center space-x-2 hover:bg-indigo-600/20 transition-all active:scale-95">
+                    <i className="fa-solid fa-share-nodes"></i>
+                    <span className="hidden sm:inline">Share</span>
+                  </button>
+                  <button onClick={() => handleSaveToGallery('image', resultImage!)} className="py-4 bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 rounded-xl font-black uppercase text-[10px] tracking-widest flex items-center justify-center space-x-2 hover:bg-indigo-500/20 active:scale-95 transition-all">
                     <i className="fa-solid fa-bookmark"></i>
-                    <span>Store in Vault</span>
+                    <span className="hidden sm:inline">Store</span>
                   </button>
                 </div>
              </div>
@@ -463,14 +498,18 @@ const CreationSuite: React.FC<CreationSuiteProps> = ({ language, user }) => {
            {resultVideo && (
              <div className="glass p-8 rounded-[3rem] space-y-6 bg-black/40 border-white/5 relative group">
                 <video ref={videoRef} src={resultVideo} controls className="w-full aspect-video object-cover rounded-2xl shadow-2xl" />
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-3 gap-3">
                   <button onClick={handleDownloadVideo} className="py-4 bg-emerald-600/10 text-emerald-400 border border-emerald-500/20 rounded-xl font-black uppercase text-[10px] tracking-widest flex items-center justify-center space-x-2 hover:bg-emerald-600/20 transition-all active:scale-95">
                     <i className="fa-solid fa-download"></i>
-                    <span>Export MP4</span>
+                    <span className="hidden sm:inline">Export</span>
                   </button>
-                  <button onClick={() => handleSaveToGallery('video', resultVideo!)} className="w-full py-4 bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 rounded-xl font-black uppercase text-[10px] tracking-widest flex items-center justify-center space-x-2 hover:bg-indigo-500/20 active:scale-95 transition-all">
+                  <button onClick={handleShareVideo} className="py-4 bg-indigo-600/10 text-indigo-400 border border-indigo-500/20 rounded-xl font-black uppercase text-[10px] tracking-widest flex items-center justify-center space-x-2 hover:bg-indigo-600/20 active:scale-95 transition-all">
+                    <i className="fa-solid fa-share-nodes"></i>
+                    <span className="hidden sm:inline">Share</span>
+                  </button>
+                  <button onClick={() => handleSaveToGallery('video', resultVideo!)} className="py-4 bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 rounded-xl font-black uppercase text-[10px] tracking-widest flex items-center justify-center space-x-2 hover:bg-indigo-500/20 active:scale-95 transition-all">
                     <i className="fa-solid fa-bookmark"></i>
-                    <span>Store in Vault</span>
+                    <span className="hidden sm:inline">Store</span>
                   </button>
                 </div>
                 {narrationBase64 && (
@@ -492,6 +531,13 @@ const CreationSuite: React.FC<CreationSuiteProps> = ({ language, user }) => {
            <i className="fa-solid fa-circle-check"></i>
            <span>Vision archived successfully</span>
         </div>
+      )}
+
+      {shareData && (
+        <ShareMenu 
+          {...shareData} 
+          onClose={() => setShareData(null)} 
+        />
       )}
 
       {isGenerating && (

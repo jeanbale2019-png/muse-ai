@@ -26,44 +26,23 @@ export const ensureApiKey = async () => {
 
 /**
  * Global error handler for Gemini API calls.
- * Provides user-friendly messages and handles mandatory key re-selection.
+ * Specifically handles the 404 "Requested entity was not found" error by re-prompting for a key.
  */
-export const handleGeminiError = async (err: any): Promise<string> => {
+export const handleGeminiError = async (err: any) => {
   const errorMessage = err?.message || (typeof err === 'object' ? JSON.stringify(err) : String(err));
-  console.error("Gemini API Error Detail:", err);
+  console.error("Gemini API Error Context:", errorMessage);
 
-  // 1. Check for 404/NOT_FOUND (Model access/Key project issue)
   const isNotFound = errorMessage.includes("Requested entity was not found") || 
                      errorMessage.includes("404") || 
-                     err?.status === "NOT_FOUND";
+                     err?.status === "NOT_FOUND" ||
+                     err?.code === 404;
 
   if (isNotFound && typeof (window as any).aistudio !== 'undefined') {
+    console.warn("Model or Key not found. This feature likely requires a paid API Key. Re-opening key selection...");
     await (window as any).aistudio.openSelectKey();
-    return "Accès au modèle refusé. Veuillez sélectionner une clé API liée à un projet avec facturation activée.";
+    return true; // Return true to indicate a retry might be possible
   }
-
-  // 2. Check for 429 (Rate Limit)
-  if (errorMessage.includes("429") || errorMessage.toLowerCase().includes("exhausted") || errorMessage.toLowerCase().includes("too many requests")) {
-    return "Limite de requêtes atteinte. Veuillez patienter une minute avant de réessayer.";
-  }
-
-  // 3. Check for 401/403 (Auth/Permission)
-  if (errorMessage.includes("401") || errorMessage.includes("403") || errorMessage.toLowerCase().includes("permission denied")) {
-    return "Erreur d'authentification. Vérifiez les permissions de votre clé API.";
-  }
-
-  // 4. Check for Network Issues
-  if (errorMessage.toLowerCase().includes("fetch") || errorMessage.toLowerCase().includes("network") || errorMessage.toLowerCase().includes("failed to connect")) {
-    return "Erreur de connexion réseau. Vérifiez votre accès internet.";
-  }
-
-  // 5. Check for Safety Filters
-  if (errorMessage.toLowerCase().includes("safety") || errorMessage.toLowerCase().includes("blocked")) {
-    return "Contenu bloqué par les filtres de sécurité. Veuillez ajuster votre demande.";
-  }
-
-  // Fallback
-  return "Une erreur inattendue est survenue lors du traitement par l'IA. Veuillez réessayer.";
+  return false;
 };
 
 // --- Audio Utilities ---
@@ -76,10 +55,7 @@ export function decode(base64: string) {
 
 export function encode(bytes: Uint8Array) {
   let binary = '';
-  const len = bytes.byteLength;
-  for (let i = 0; i < len; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
+  for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
   return btoa(binary);
 }
 
@@ -89,62 +65,12 @@ export async function decodeAudioData(data: Uint8Array, ctx: AudioContext, sampl
   const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
   for (let channel = 0; channel < numChannels; channel++) {
     const channelData = buffer.getChannelData(channel);
-    for (let i = 0; i < frameCount; i++) {
-      channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
-    }
+    for (let i = 0; i < frameCount; i++) channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
   }
   return buffer;
 }
 
 // --- Content Generation ---
-
-export const getConversationSuggestions = async (text: string, language: Language): Promise<ConversationSuggestion[]> => {
-  const ai = getAI();
-  try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: `User transcript: "${text}". Based on this, provide 3 short conversation suggestions (one 'relance', one 'empathy', one 'humor') in ${language}.`,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              text: { type: Type.STRING },
-              type: { type: Type.STRING }
-            },
-            required: ["text", "type"]
-          }
-        }
-      }
-    });
-    return JSON.parse(response.text || '[]');
-  } catch (err) {
-    throw new Error(await handleGeminiError(err));
-  }
-};
-
-export const chatWithGemini = async (history: {role: 'user' | 'model', text: string}[], message: string, language: Language): Promise<string> => {
-  const ai = getAI();
-  try {
-    const chat = ai.chats.create({
-      model: 'gemini-3-flash-preview',
-      config: {
-        systemInstruction: `You are a helpful assistant named Gemini. You must respond in ${language}.`,
-      },
-      history: history.map(h => ({
-        role: h.role,
-        parts: [{ text: h.text }]
-      }))
-    });
-    
-    const response = await chat.sendMessage({ message });
-    return response.text || '';
-  } catch (err) {
-    throw new Error(await handleGeminiError(err));
-  }
-};
 
 export const analyzeImageAndGhostwrite = async (base64: string, mimeType: string, language: Language = 'fr-FR', genre: StoryGenre = 'fantasy'): Promise<StoryData> => {
   const ai = getAI();
@@ -154,8 +80,8 @@ export const analyzeImageAndGhostwrite = async (base64: string, mimeType: string
       contents: {
         parts: [
           { inlineData: { data: base64, mimeType } },
-          { text: `Analyze this image for a creative writing session in the style of ${genre}. Respond strictly in ${language}. 
-                  Provide a JSON object including visual analysis of the art itself and narrative elements.` }
+          { text: `Analyze this image in the style of ${genre}. Respond strictly in ${language}. 
+                  Provide a JSON object with: openingParagraph, mood, sceneAnalysis, characters (list), worldBuilding, sensoryDetails (list), plotTwists (list).` }
         ]
       },
       config: {
@@ -170,45 +96,15 @@ export const analyzeImageAndGhostwrite = async (base64: string, mimeType: string
             worldBuilding: { type: Type.STRING },
             sensoryDetails: { type: Type.ARRAY, items: { type: Type.STRING } },
             plotTwists: { type: Type.ARRAY, items: { type: Type.STRING } },
-            visualAnalysis: {
-              type: Type.OBJECT,
-              properties: {
-                lighting: { type: Type.STRING },
-                composition: { type: Type.STRING },
-                colorPalette: { type: Type.ARRAY, items: { type: Type.STRING }, description: "List of hex codes or descriptive colors found in the image" }
-              },
-              required: ["lighting", "composition", "colorPalette"]
-            },
-            writingPrompts: {
-              type: Type.OBJECT,
-              properties: {
-                action: { type: Type.STRING },
-                dialogue: { type: Type.STRING },
-                internal: { type: Type.STRING }
-              },
-              required: ["action", "dialogue", "internal"]
-            }
           },
-          required: ["openingParagraph", "mood", "sceneAnalysis", "characters", "worldBuilding", "sensoryDetails", "plotTwists", "visualAnalysis", "writingPrompts"]
+          required: ["openingParagraph", "mood", "sceneAnalysis", "characters", "worldBuilding", "sensoryDetails", "plotTwists"]
         }
       }
     });
     return JSON.parse(response.text || '{}');
   } catch (err) {
-    throw new Error(await handleGeminiError(err));
-  }
-};
-
-export const expandStory = async (currentText: string, context: string, genre: string, language: Language): Promise<string> => {
-  const ai = getAI();
-  try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: `Context: ${context}. Previous Chapter: ${currentText}. Continue this story in the genre of ${genre} for one more evocative paragraph. Language: ${language}.`,
-    });
-    return response.text || '';
-  } catch (err) {
-    throw new Error(await handleGeminiError(err));
+    if (await handleGeminiError(err)) return analyzeImageAndGhostwrite(base64, mimeType, language, genre);
+    throw err;
   }
 };
 
@@ -252,35 +148,7 @@ export const generateProImage = async (prompt: string, aspectRatio: AspectRatio,
       if (part.inlineData) return `data:image/png;base64,${part.inlineData.data}`;
     }
   } catch (err) {
-    throw new Error(await handleGeminiError(err));
-  }
-  return null;
-};
-
-export const generateLogo = async (brandName: string): Promise<string | null> => {
-  const ai = getAI();
-  try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-image',
-      contents: {
-        parts: [
-          { text: `Create a professional, abstract, and minimalist logo for a brand called "${brandName}". The design should focus on the concept of interconnected ideas using elegant, flowing lines that weave together. It should feel iconic, modern, and suitable for a creative tech leadership platform. High resolution, white background.` }
-        ]
-      },
-      config: {
-        imageConfig: {
-          aspectRatio: "1:1"
-        }
-      }
-    });
-    
-    for (const part of response.candidates?.[0]?.content?.parts || []) {
-      if (part.inlineData) {
-        return `data:image/png;base64,${part.inlineData.data}`;
-      }
-    }
-  } catch (err) {
-    throw new Error(await handleGeminiError(err));
+    if (await handleGeminiError(err)) return generateProImage(prompt, aspectRatio, imageSize);
   }
   return null;
 };
@@ -303,7 +171,99 @@ export const generateVeoVideo = async (prompt: string, imageBase64?: string, mim
     if (!result?.video?.uri) throw new Error("Video generation failed.");
     return { url: `${result.video.uri}&key=${process.env.API_KEY}`, videoObject: result.video };
   } catch (err) {
-    throw new Error(await handleGeminiError(err));
+    if (await handleGeminiError(err)) return generateVeoVideo(prompt, imageBase64, mimeType, aspectRatio, resolution);
+    throw err;
+  }
+};
+
+/**
+ * Extends a previously generated video.
+ */
+export const extendVeoVideo = async (prompt: string, previousVideo: any) => {
+  await ensureApiKey();
+  const ai = getAI();
+  try {
+    let operation = await ai.models.generateVideos({
+      model: 'veo-3.1-generate-preview',
+      prompt,
+      video: previousVideo,
+      config: {
+        numberOfVideos: 1,
+        resolution: '720p',
+        aspectRatio: previousVideo?.aspectRatio,
+      }
+    });
+    while (!operation.done) {
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      operation = await ai.operations.getVideosOperation({ operation: operation });
+    }
+    const result = operation.response?.generatedVideos?.[0];
+    if (!result?.video?.uri) throw new Error("Video extension failed.");
+    return { url: `${result.video.uri}&key=${process.env.API_KEY}`, videoObject: result.video };
+  } catch (err) {
+    if (await handleGeminiError(err)) return extendVeoVideo(prompt, previousVideo);
+    throw err;
+  }
+};
+
+export const groundedSearch = async (query: string, language: Language) => {
+  const ai = getAI();
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: `Search for current information about: ${query}. Respond in ${language}.`,
+      config: { tools: [{ googleSearch: {} }] },
+    });
+    return {
+      text: response.text || '',
+      chunks: response.candidates?.[0]?.groundingMetadata?.groundingChunks || []
+    };
+  } catch (err) {
+    await handleGeminiError(err);
+    return { text: "Error performing search.", chunks: [] };
+  }
+};
+
+export const chatWithGemini = async (history: { role: 'user' | 'model'; text: string }[], message: string, language: Language) => {
+  const ai = getAI();
+  try {
+    const chat = ai.chats.create({
+      model: 'gemini-3-flash-preview',
+      config: { systemInstruction: `Respond only in ${language}.` },
+    });
+    const response = await chat.sendMessage({ message });
+    return response.text;
+  } catch (err) {
+    await handleGeminiError(err);
+    return "I am currently unavailable.";
+  }
+};
+
+export const getConversationSuggestions = async (text: string, language: Language): Promise<ConversationSuggestion[]> => {
+  const ai = getAI();
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: `Based on context: "${text}", suggest 3 responses in ${language}. Return JSON array of objects with "text" and "type" (relance, empathy, humor).`,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              text: { type: Type.STRING },
+              type: { type: Type.STRING, enum: ['relance', 'empathy', 'humor'] }
+            },
+            required: ["text", "type"]
+          }
+        }
+      }
+    });
+    return JSON.parse(response.text || '[]');
+  } catch (err) {
+    await handleGeminiError(err);
+    return [];
   }
 };
 
@@ -318,7 +278,23 @@ export const editImage = async (base64: string, mimeType: string, prompt: string
       if (part.inlineData) return `data:image/png;base64,${part.inlineData.data}`;
     }
   } catch (err) {
-    throw new Error(await handleGeminiError(err));
+    await handleGeminiError(err);
+  }
+  return null;
+};
+
+export const generateLogo = async (brandName: string) => {
+  const ai = getAI();
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash-image',
+      contents: { parts: [{ text: `Create a professional minimalist vector logo for "${brandName}".` }] }
+    });
+    for (const part of response.candidates?.[0]?.content?.parts || []) {
+      if (part.inlineData) return `data:image/png;base64,${part.inlineData.data}`;
+    }
+  } catch (err) {
+    await handleGeminiError(err);
   }
   return null;
 };

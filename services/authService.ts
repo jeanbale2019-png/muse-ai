@@ -1,18 +1,31 @@
 
+import { initializeApp, getApp, getApps } from 'firebase/app';
 import { 
+  getAuth, 
   createUserWithEmailAndPassword, 
   signInWithEmailAndPassword, 
+  onAuthStateChanged, 
   signOut,
   setPersistence,
   browserLocalPersistence,
   GoogleAuthProvider,
   signInWithPopup
 } from 'firebase/auth';
-import { doc, setDoc, getDoc } from 'firebase/firestore';
-import { auth, db } from './firebase';
+import { getFirestore, doc, setDoc, getDoc } from 'firebase/firestore';
 import { UserAccount, UserRole, SubscriptionTier } from '../types';
 
-// Set persistence once
+const firebaseConfig = {
+  apiKey: process.env.API_KEY, 
+  authDomain: "muse-ai-77821724.firebaseapp.com",
+  projectId: "muse-ai-77821724",
+  storageBucket: "muse-ai-77821724.appspot.com",
+};
+
+const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
+
+export const auth = getAuth(app);
+export const db = getFirestore(app);
+
 setPersistence(auth, browserLocalPersistence).catch(console.error);
 
 export const registerUser = async (email: string, pass: string, username: string, role: UserRole, tier: SubscriptionTier): Promise<UserAccount> => {
