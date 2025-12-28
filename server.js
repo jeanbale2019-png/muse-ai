@@ -1,55 +1,105 @@
 
-const express = require('express');
-const path = require('path');
-const compression = require('compression');
-const helmet = require('helmet');
+import express from 'express';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import compression from 'compression';
+import helmet from 'helmet';
+import cors from 'cors';
+import dotenv from 'dotenv';
+import { GoogleGenAI } from '@google/genai';
+
+dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const API_KEY = process.env.API_KEY || process.env.GEMINI_API_KEY;
+
+// Initialisation Gemini SDK
+const genAI = API_KEY ? new GoogleGenAI({ apiKey: API_KEY }) : null;
+
+app.use(cors());
+app.use(compression());
+app.use(express.json({ limit: '10mb' }));
 
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "https://cdn.tailwindcss.com", "https://esm.sh", "https://cdnjs.cloudflare.com"],
-      connectSrc: ["'self'", "https://*.googleapis.com", "https://*.firebaseio.com", "https://*.firebaseapp.com", "https://esm.sh", "https://generativelanguage.googleapis.com"],
-      imgSrc: ["'self'", "data:", "https://*.dicebear.com", "https://images.unsplash.com", "https://*.googleusercontent.com"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "https://cdn.tailwindcss.com", "https://cdnjs.cloudflare.com"],
+      connectSrc: [
+        "'self'", 
+        "https://*.googleapis.com", 
+        "https://*.firebaseio.com", 
+        "https://*.firebaseapp.com", 
+        "https://generativelanguage.googleapis.com",
+        "https://identitytoolkit.googleapis.com"
+      ],
+      imgSrc: ["'self'", "data:", "blob:", "https://*.dicebear.com", "https://images.unsplash.com", "https://*.googleusercontent.com"],
       styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://cdnjs.cloudflare.com"],
       fontSrc: ["'self'", "https://fonts.gstatic.com", "https://cdnjs.cloudflare.com"],
-      mediaSrc: ["'self'", "data:", "blob:", "https://*.google.com", "https://generativelanguage.googleapis.com"],
+      mediaSrc: ["'self'", "data:", "blob:"],
       frameSrc: ["'self'", "https://*.firebaseapp.com"],
     },
   },
   crossOriginEmbedderPolicy: false,
 }));
 
-app.use(compression());
+// --- API ROUTES (Proxy Gemini) ---
 
-// Force HTTPS in production
-app.use((req, res, next) => {
-  if (req.headers['x-forwarded-proto'] !== 'https' && process.env.NODE_ENV === 'production') {
-    return res.redirect(`https://${req.headers.host}${req.url}`);
-  }
-  next();
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'online', ai_ready: !!genAI });
 });
 
-// Serve static files from /dist if it exists, otherwise from root
-const publicDir = path.join(__dirname, 'dist');
-app.use(express.static(publicDir));
-app.use(express.static(__dirname));
+app.post('/api/ai/analyze-image', async (req, res) => {
+  if (!genAI) return res.status(503).json({ error: "AI Key missing on server" });
+  try {
+    const { base64, mimeType, language, genre } = req.body;
+    // Use gemini-3-flash-preview for text-based image analysis
+    const response = await genAI.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: {
+        parts: [
+          { inlineData: { data: base64, mimeType } },
+          { text: `Analyze this image in the style of ${genre}. Respond in ${language}. Provide a JSON object with: openingParagraph, mood, sceneAnalysis, characters, worldBuilding, sensoryDetails, plotTwists.` }
+        ]
+      },
+      config: { responseMimeType: "application/json" }
+    });
+    // Correctly accessing .text property
+    res.json(JSON.parse(response.text || "{}"));
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
-// SPA routing: catch-all
+app.post('/api/ai/chat', async (req, res) => {
+  if (!genAI) return res.status(503).json({ error: "AI Key missing" });
+  try {
+    const { message, history, language } = req.body;
+    // Use gemini-3-flash-preview for chat
+    const response = await genAI.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: message,
+      config: { systemInstruction: `Respond in ${language}.` }
+    });
+    // Correctly accessing .text property
+    res.json({ text: response.text });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// --- SERVING FRONTEND ---
+const distPath = path.join(__dirname, 'dist');
+app.use(express.static(distPath));
+
 app.get('*', (req, res) => {
-  const indexInDist = path.join(publicDir, 'index.html');
-  const indexInRoot = path.join(__dirname, 'index.html');
-  
-  res.sendFile(indexInDist, (err) => {
-    if (err) {
-      res.sendFile(indexInRoot);
-    }
-  });
+  res.sendFile(path.join(distPath, 'index.html'));
 });
 
 app.listen(PORT, () => {
-  console.log(`Social Muse Server live on port ${PORT}`);
+  console.log(`🚀 Social Muse running on port ${PORT}`);
 });
