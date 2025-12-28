@@ -1,9 +1,19 @@
 
-import { UserAccount, SubscriptionTier } from '../types';
-import { getFirestore, doc, updateDoc, increment } from 'firebase/firestore';
+import { UserAccount } from '../types';
+import { doc, updateDoc, increment } from 'firebase/firestore';
 
 export const checkPermission = (user: UserAccount | null, feature: string): { allowed: boolean; message?: string } => {
-  if (!user) return { allowed: false, message: "Veuillez vous connecter pour accéder à cette fonctionnalité." };
+  // Mode Invité
+  if (!user) {
+    if (feature === 'challenge') {
+      const guestUsage = parseInt(localStorage.getItem('muse_guest_usage') || '0');
+      if (guestUsage >= 2) {
+        return { allowed: false, message: "Limite d'invité atteinte. Connectez-vous pour continuer gratuitement !" };
+      }
+      return { allowed: true };
+    }
+    return { allowed: false, message: "Cette fonction nécessite un compte gratuit." };
+  }
 
   const today = new Date().toISOString().split('T')[0];
 
@@ -11,33 +21,16 @@ export const checkPermission = (user: UserAccount | null, feature: string): { al
     case 'challenge':
       if (user.tier === 'free') {
         const challengesToday = user.lastChallengeDate === today ? (user.dailyChallengesUsed || 0) : 0;
-        if (challengesToday >= 1) {
-          return { 
-            allowed: false, 
-            message: "Vous avez atteint votre limite quotidienne. Passez à Social Muse Premium pour un entraînement illimité." 
-          };
+        if (challengesToday >= 5) {
+          return { allowed: false, message: "Limite quotidienne atteinte (5). Passez Premium pour l'illimité !" };
         }
       }
       return { allowed: true };
 
-    case 'debate_mode':
-      if (user.tier === 'free') {
-        return { 
-          allowed: false, 
-          message: "Le Mode Débat est réservé aux membres Premium. Challengez votre éloquence dès maintenant." 
-        };
-      }
-      return { allowed: true };
-
-    case 'admin_dashboard':
-      if (user.tier !== 'business') {
-        return { allowed: false, message: "Le Dashboard Administrateur est exclusif au plan Entreprise." };
-      }
-      return { allowed: true };
-
     case 'private_rooms':
+    case 'live_audio':
       if (user.tier === 'free') {
-        return { allowed: false, message: "La création de salons privés nécessite un compte Premium ou Entreprise." };
+        return { allowed: false, message: "Les fonctions Live sont réservées aux membres Premium." };
       }
       return { allowed: true };
 
@@ -46,22 +39,24 @@ export const checkPermission = (user: UserAccount | null, feature: string): { al
   }
 };
 
-export const registerChallengeUsage = async (user: UserAccount, db: any) => {
-  if (!db || user.tier !== 'free') return;
+export const registerChallengeUsage = async (user: UserAccount | null, db: any) => {
+  if (!user) {
+    // Increment local storage for guest
+    const current = parseInt(localStorage.getItem('muse_guest_usage') || '0');
+    localStorage.setItem('muse_guest_usage', (current + 1).toString());
+    return;
+  }
+
+  if (!db || user.tier === 'premium') return;
 
   const today = new Date().toISOString().split('T')[0];
   const userRef = doc(db, "users", user.id);
 
   try {
     if (user.lastChallengeDate !== today) {
-      await updateDoc(userRef, {
-        lastChallengeDate: today,
-        dailyChallengesUsed: 1
-      });
+      await updateDoc(userRef, { lastChallengeDate: today, dailyChallengesUsed: 1 });
     } else {
-      await updateDoc(userRef, {
-        dailyChallengesUsed: increment(1)
-      });
+      await updateDoc(userRef, { dailyChallengesUsed: increment(1) });
     }
   } catch (err) {
     console.warn("Usage Registration Failed:", err);

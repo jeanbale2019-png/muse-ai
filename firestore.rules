@@ -1,18 +1,40 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /users/{userId} {
-      allow read: if true;
-      allow write: if request.auth != null && request.auth.uid == userId;
+    
+    // Fonction helper : Vérifie si l'utilisateur est connecté
+    function isAuthenticated() {
+      return request.auth != null;
     }
+
+    // Fonction helper : Vérifie si l'utilisateur accède à ses propres données
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Règles Users : Lecture publique (pour le social), Écriture propriétaire uniquement
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+      allow update, delete: if isOwner(userId);
+    }
+
+    // Règles Rooms : Création authentifiée, Participants gérés dans la sous-collection
+    match /rooms/{roomId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && (resource.data.createdBy == request.auth.uid || request.auth.uid in resource.data.participants);
+      
+      match /participants/{participantId} {
+        allow read, write: if isAuthenticated();
+      }
+    }
+
+    // Règles Posts/Créations : Lecture publique, écriture propriétaire
     match /posts/{postId} {
       allow read: if true;
-      allow create: if request.auth != null;
-      allow update, delete: if request.auth != null && request.auth.uid == resource.data.userId;
-    }
-    match /follows/{userId} {
-      allow read: if true;
-      allow write: if request.auth != null && request.auth.uid == userId;
+      allow create: if isAuthenticated();
+      allow update, delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
     }
   }
 }
