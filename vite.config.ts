@@ -12,7 +12,9 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          vendor: ['react', 'react-dom', 'firebase/app', 'firebase/firestore', 'firebase/auth'],
+          vendor: ['react', 'react-dom'],
+          firebase: ['firebase/app', 'firebase/auth', 'firebase/firestore'],
+          genai: ['@google/genai']
         },
       },
     },
