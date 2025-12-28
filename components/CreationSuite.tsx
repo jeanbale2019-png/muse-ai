@@ -1,5 +1,6 @@
+
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { generateProImage, generateVeoVideo, generateLogo, triggerDownload, downloadFromUrl, getAI, handleGeminiError, generateTTS, decode, decodeAudioData, saveToGallery, getGallery, playTTS, pcmToWav } from '../services/geminiService';
+import { generateProImage, generateVeoVideo, extendVeoVideo, generateLogo, triggerDownload, downloadFromUrl, getAI, handleGeminiError, generateTTS, decode, decodeAudioData, saveToGallery, getGallery, playTTS, pcmToWav } from '../services/geminiService';
 import { AspectRatio, ImageSize, VoiceName, Language, UI_TRANSLATIONS, AVAILABLE_VOICES, UserAccount } from '../types';
 import ShareMenu from './ShareMenu';
 
@@ -37,6 +38,7 @@ const CreationSuite: React.FC<CreationSuiteProps> = ({ language, user }) => {
   
   const [resultImage, setResultImage] = useState<string | null>(null);
   const [resultVideo, setResultVideo] = useState<string | null>(null);
+  const [lastVideoObject, setLastVideoObject] = useState<any>(null);
   const [resultLogo, setResultLogo] = useState<string | null>(null);
   const [editorMode, setEditorMode] = useState<'compose' | 'preview' | 'forge' | 'gallery'>('compose');
   
@@ -133,9 +135,11 @@ const CreationSuite: React.FC<CreationSuiteProps> = ({ language, user }) => {
     setIsGenerating(true);
     setError(null);
     setResultVideo(null);
+    setLastVideoObject(null);
     try {
       const res = await generateVeoVideo(prompt.replace(/\*\*|\*/g, ''), initialImage?.data, initialImage?.type, (aspectRatio === '9:16' ? '9:16' : '16:9'), videoResolution);
-      setResultVideo(res.url);
+      setResultVideo(res.url || null);
+      setLastVideoObject(res.videoObject || null);
       setLastGeneratedQuality(videoResolution);
       setEditorMode('preview');
     } catch (err: any) { 
@@ -143,6 +147,25 @@ const CreationSuite: React.FC<CreationSuiteProps> = ({ language, user }) => {
       setError(err.message || "Failed to generate video.");
     } 
     finally { setIsGenerating(false); }
+  };
+
+  const handleExtendVideo = async () => {
+    if (!lastVideoObject) return;
+    setIsGenerating(true);
+    setError(null);
+    try {
+      const extendPrompt = prompt.replace(/\*\*|\*/g, '');
+      const res = await extendVeoVideo(extendPrompt, lastVideoObject);
+      setResultVideo(res.url || null);
+      setLastVideoObject(res.videoObject || null);
+      setLastGeneratedQuality('720p (Extended)');
+      setEditorMode('preview');
+    } catch (err: any) {
+      handleGeminiError(err);
+      setError("Failed to extend video. Please ensure the prompt is descriptive and the video is 720p.");
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   const handleGenerateNarration = async () => {
@@ -497,7 +520,7 @@ const CreationSuite: React.FC<CreationSuiteProps> = ({ language, user }) => {
            )}
            {resultVideo && (
              <div className="glass p-8 rounded-[3rem] space-y-6 bg-black/40 border-white/5 relative group">
-                <video ref={videoRef} src={resultVideo} controls className="w-full aspect-video object-cover rounded-2xl shadow-2xl" />
+                <video ref={videoRef} key={resultVideo} src={resultVideo} controls className="w-full aspect-video object-cover rounded-2xl shadow-2xl" />
                 <div className="grid grid-cols-3 gap-3">
                   <button onClick={handleDownloadVideo} className="py-4 bg-emerald-600/10 text-emerald-400 border border-emerald-500/20 rounded-xl font-black uppercase text-[10px] tracking-widest flex items-center justify-center space-x-2 hover:bg-emerald-600/20 transition-all active:scale-95">
                     <i className="fa-solid fa-download"></i>
@@ -512,15 +535,28 @@ const CreationSuite: React.FC<CreationSuiteProps> = ({ language, user }) => {
                     <span className="hidden sm:inline">Store</span>
                   </button>
                 </div>
-                {narrationBase64 && (
-                  <button 
-                    onClick={handleSyncPlay} 
-                    className="w-full py-4 bg-indigo-600 text-white rounded-xl font-black uppercase text-[10px] tracking-widest flex items-center justify-center space-x-3 shadow-2xl hover:bg-indigo-500 active:scale-95 transition-all"
-                  >
-                    <i className="fa-solid fa-play"></i>
-                    <span>Play Synchronized (Video + Voice)</span>
-                  </button>
-                )}
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {lastVideoObject && (
+                    <button 
+                      onClick={handleExtendVideo} 
+                      disabled={isGenerating}
+                      className="w-full py-4 bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 rounded-xl font-black uppercase text-[10px] tracking-widest flex items-center justify-center space-x-3 shadow-xl hover:bg-emerald-600/30 active:scale-95 transition-all"
+                    >
+                      <i className="fa-solid fa-clock-rotate-left"></i>
+                      <span>Extend +7s Sequence</span>
+                    </button>
+                  )}
+                  {narrationBase64 && (
+                    <button 
+                      onClick={handleSyncPlay} 
+                      className="w-full py-4 bg-indigo-600 text-white rounded-xl font-black uppercase text-[10px] tracking-widest flex items-center justify-center space-x-3 shadow-2xl hover:bg-indigo-500 active:scale-95 transition-all"
+                    >
+                      <i className="fa-solid fa-play"></i>
+                      <span>Sync Play (Voice)</span>
+                    </button>
+                  )}
+                </div>
              </div>
            )}
         </div>
