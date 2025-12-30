@@ -1,21 +1,27 @@
 
 import React, { useState, useRef } from 'react';
 import { analyzeImageAndGhostwrite, generateTTS, playTTS, decode, pcmToWav, triggerDownload } from '../services/geminiService';
-import { StoryData, AVAILABLE_VOICES, VoiceName } from '../types';
+import { StoryData, AVAILABLE_VOICES, VoiceName, Language } from '../types';
 
-const StoryGenerator: React.FC = () => {
+interface StoryGeneratorProps {
+  language?: Language;
+}
+
+const StoryGenerator: React.FC<StoryGeneratorProps> = ({ language = 'en-US' }) => {
   const [image, setImage] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isReading, setIsReading] = useState(false);
   const [story, setStory] = useState<StoryData | null>(null);
   const [selectedVoice, setSelectedVoice] = useState<VoiceName>('Kore');
   const [lastAudioBase64, setLastAudioBase64] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
+    
+    setError(null);
     const reader = new FileReader();
     reader.onloadend = async () => {
       const base64 = (reader.result as string).split(',')[1];
@@ -23,11 +29,12 @@ const StoryGenerator: React.FC = () => {
       setIsAnalyzing(true);
       setLastAudioBase64(null);
       try {
-        const result = await analyzeImageAndGhostwrite(base64, file.type);
+        // Fix: Explicitly cast language to Language to satisfy the type system if it is inferred as a generic string.
+        const result = await analyzeImageAndGhostwrite(base64, file.type, language as Language);
         setStory(result);
-      } catch (err) {
+      } catch (err: any) {
         console.error(err);
-        alert("Failed to analyze image. Ensure your API key is valid.");
+        setError(err.message || "Failed to analyze image. Please check your API key and connection.");
       } finally {
         setIsAnalyzing(false);
       }
@@ -38,14 +45,16 @@ const StoryGenerator: React.FC = () => {
   const handleReadAloud = async () => {
     if (!story) return;
     setIsReading(true);
+    setError(null);
     try {
       const base64 = await generateTTS(story.openingParagraph, selectedVoice);
       if (base64) {
         setLastAudioBase64(base64);
         await playTTS(base64);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      setError("Failed to generate speech. Please try a different voice or try again later.");
     } finally {
       setIsReading(false);
     }
@@ -53,11 +62,15 @@ const StoryGenerator: React.FC = () => {
 
   const onDownloadAudio = () => {
     if (!lastAudioBase64) return;
-    const pcmData = new Int16Array(decode(lastAudioBase64).buffer);
-    const wavBlob = pcmToWav(pcmData, 24000);
-    const url = URL.createObjectURL(wavBlob);
-    triggerDownload(url, `narration-${Date.now()}.wav`);
-    URL.revokeObjectURL(url);
+    try {
+      const pcmData = new Int16Array(decode(lastAudioBase64).buffer);
+      const wavBlob = pcmToWav(pcmData, 24000);
+      const url = URL.createObjectURL(wavBlob);
+      triggerDownload(url, `narration-${Date.now()}.wav`);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError("Failed to download audio file.");
+    }
   };
 
   return (
@@ -66,6 +79,18 @@ const StoryGenerator: React.FC = () => {
         <h1 className="text-5xl font-serif font-light tracking-tight text-white">Muse <span className="text-blue-400">&</span> Vision</h1>
         <p className="text-zinc-400 text-lg">Upload an image to spark a world-building opening.</p>
       </div>
+
+      {error && (
+        <div className="bg-rose-500/10 border border-rose-500/20 p-4 rounded-2xl flex items-center justify-between text-rose-400 animate-in fade-in slide-in-from-top-2">
+          <div className="flex items-center space-x-3">
+            <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+            <span className="text-sm font-medium">{error}</span>
+          </div>
+          <button onClick={() => setError(null)} className="hover:text-white transition-colors">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+          </button>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
         <div className="space-y-4">
@@ -92,7 +117,6 @@ const StoryGenerator: React.FC = () => {
             onChange={handleFileChange} 
           />
 
-          {/* Voice Selector */}
           <div className="glass p-4 rounded-2xl space-y-3">
             <label className="text-xs font-bold uppercase tracking-widest text-zinc-500 block">Narrator Voice</label>
             <div className="relative">
@@ -114,58 +138,57 @@ const StoryGenerator: React.FC = () => {
 
         <div className="space-y-6">
           {isAnalyzing ? (
-            <div className="glass p-8 rounded-3xl space-y-4 animate-pulse">
-              <div className="h-4 bg-zinc-800 rounded w-3/4"></div>
-              <div className="h-4 bg-zinc-800 rounded w-full"></div>
-              <div className="h-4 bg-zinc-800 rounded w-5/6"></div>
-              <p className="text-zinc-500 text-sm text-center">Gemini is exploring the world within...</p>
+            <div className="glass h-full min-h-[400px] rounded-3xl flex flex-col items-center justify-center space-y-4 p-8">
+              <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+              <p className="text-zinc-400 font-mono text-sm animate-pulse">Analyzing visual vectors...</p>
             </div>
           ) : story ? (
-            <div className="glass p-8 rounded-3xl space-y-6 shadow-2xl relative overflow-hidden">
-              <div className="flex justify-between items-start">
-                <div>
-                  <h3 className="text-xs font-bold uppercase tracking-widest text-blue-400 mb-1">Atmosphere</h3>
-                  <p className="text-sm italic text-zinc-400">{story.mood}</p>
-                </div>
-                <div className="flex items-center space-x-3">
-                  <button 
-                    onClick={handleReadAloud}
-                    disabled={isReading}
-                    className="p-4 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-full transition-all shadow-xl shadow-blue-500/20 hover:scale-110 active:scale-95 flex items-center justify-center"
-                    title="Narrate story"
-                  >
-                    {isReading ? (
-                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                    ) : (
-                      <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20"><path d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z"></path></svg>
-                    )}
-                  </button>
-                  {lastAudioBase64 && (
-                    <button 
-                      onClick={onDownloadAudio}
-                      className="p-4 bg-zinc-800 hover:bg-zinc-700 text-zinc-100 rounded-full transition-all shadow-xl hover:scale-110 active:scale-95 flex items-center justify-center border border-zinc-700 animate-in zoom-in-50 duration-300"
-                      title="Download Audio (WAV)"
-                    >
-                      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+            <div className="glass rounded-3xl p-8 space-y-6 animate-in slide-in-from-bottom-4 duration-700">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-blue-400">Opening</span>
+                  <div className="flex space-x-2">
+                    <button onClick={handleReadAloud} disabled={isReading} className="p-2 hover:bg-white/10 rounded-full transition-colors text-zinc-400 hover:text-white">
+                       {isReading ? <span className="animate-pulse">●</span> : <i className="fa-solid fa-volume-high"></i>}
                     </button>
-                  )}
+                    {lastAudioBase64 && (
+                      <button onClick={onDownloadAudio} className="p-2 hover:bg-white/10 rounded-full transition-colors text-zinc-400 hover:text-white">
+                         <i className="fa-solid fa-download"></i>
+                      </button>
+                    )}
+                  </div>
                 </div>
-              </div>
-              
-              <div className="space-y-4">
-                <p className="text-lg font-serif leading-relaxed text-zinc-100 first-letter:text-5xl first-letter:font-bold first-letter:mr-3 first-letter:float-left first-letter:text-blue-400">
-                  {story.openingParagraph}
+                <p className="text-xl md:text-2xl font-serif italic text-zinc-200 leading-relaxed">
+                  "{story.openingParagraph}"
                 </p>
-                
-                <div className="pt-6 border-t border-zinc-800 flex flex-col space-y-4">
-                  <h4 className="text-xs font-bold uppercase tracking-widest text-zinc-500">Scene Analysis</h4>
-                  <p className="text-xs text-zinc-500 leading-relaxed italic">{story.sceneAnalysis}</p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 pt-6 border-t border-white/5">
+                <div className="space-y-1">
+                  <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500">Mood</span>
+                  <p className="text-sm text-zinc-300">{story.mood}</p>
+                </div>
+                <div className="space-y-1">
+                  <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500">Genre</span>
+                  <p className="text-sm text-zinc-300 capitalize">{story.sceneAnalysis?.split(' ')?.[0] || 'Fiction'}</p>
                 </div>
               </div>
+
+              {story.characters.length > 0 && (
+                <div className="space-y-2">
+                   <span className="text-[9px] font-black uppercase tracking-widest text-zinc-500">Characters Identified</span>
+                   <div className="flex flex-wrap gap-2">
+                      {story.characters.map((char, i) => (
+                        <span key={i} className="px-3 py-1 bg-white/5 rounded-full text-xs text-zinc-300 border border-white/5">{char}</span>
+                      ))}
+                   </div>
+                </div>
+              )}
             </div>
           ) : (
-            <div className="h-full flex items-center justify-center p-12 text-center glass rounded-3xl border-dashed border border-zinc-800 min-h-[300px]">
-              <p className="text-zinc-500">Your story begins once the first frame is cast.</p>
+            <div className="h-full min-h-[400px] rounded-3xl border-2 border-dashed border-zinc-800 flex flex-col items-center justify-center text-zinc-600 space-y-4">
+               <i className="fa-solid fa-feather-pointed text-4xl opacity-20"></i>
+               <p className="text-sm uppercase font-black tracking-widest opacity-40">Upload image to begin</p>
             </div>
           )}
         </div>

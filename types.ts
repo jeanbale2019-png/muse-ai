@@ -1,5 +1,5 @@
 
-export type Tab = 'writer' | 'studio' | 'lab' | 'live' | 'intel' | 'social' | 'profile' | 'settings' | 'admin';
+export type Tab = 'writer' | 'timelapse' | 'studio' | 'lab' | 'live' | 'intel' | 'social' | 'profile' | 'settings' | 'admin';
 
 export type UserRole = 'solo' | 'coach' | 'org';
 export type SubscriptionTier = 'free' | 'premium' | 'business';
@@ -12,9 +12,10 @@ export interface UserAccount {
   interests: string[];
   eloquenceLevel: number;
   exp: number;
-  language: Language; // Préférence persistante
-  avatar?: string; // Champ pour la photo de profil
-  lastChallengeDate?: string; 
+  credits: number; 
+  language: Language;
+  avatar?: string;
+  lastChallengeDate?: string;
   dailyChallengesUsed?: number;
 }
 
@@ -28,23 +29,55 @@ export const SUPPORTED_LANGUAGES: { code: Language; label: string; flag: string;
   { code: 'fr-FR', label: 'Français', flag: '🇫🇷', native: 'Français' },
   { code: 'en-US', label: 'English', flag: '🇺🇸', native: 'English' },
   { code: 'es-ES', label: 'Español', flag: '🇪🇸', native: 'Español' },
-  { code: 'pt-PT', label: 'Português', flag: '🇵🇹', native: 'Português' },
   { code: 'de-DE', label: 'Deutsch', flag: '🇩🇪', native: 'Deutsch' },
-  { code: 'it-IT', label: 'Italiano', flag: '🇮🇹', native: 'Italiano' },
-  { code: 'ar-SA', label: 'Arabic', flag: '🇸🇦', native: 'العربية' },
-  { code: 'zh-CN', label: 'Chinese', flag: '🇨🇳', native: '简体中文' },
-  { code: 'ja-JP', label: 'Japanese', flag: '🇯🇵', native: '日本語' },
-  { code: 'ru-RU', label: 'Russian', flag: '🇷🇺', native: 'Русский' },
-  { code: 'hi-IN', label: 'Hindi', flag: '🇮🇳', native: 'हिन्दी' },
-  { code: 'tr-TR', label: 'Turkish', flag: '🇹🇷', native: 'Türkçe' },
-  { code: 'nl-NL', label: 'Dutch', flag: '🇳🇱', native: 'Nederlands' },
-  { code: 'pl-PL', label: 'Polish', flag: '🇵🇱', native: 'Polski' },
-  { code: 'ko-KR', label: 'Korean', flag: '🇰🇷', native: '한국어' },
-  { code: 'ln-CD', label: 'Lingala', flag: '🇨🇩', native: 'Lingála' },
-  { code: 'sw-KE', label: 'Swahili', flag: '🇰🇪', native: 'Kiswahili' },
-  { code: 'wo-SN', label: 'Wolof', flag: '🇸🇳', native: 'Wolof' },
-  { code: 'yo-NG', label: 'Yoruba', flag: '🇳🇬', native: 'Yorùbá' },
-  { code: 'am-ET', label: 'Amharic', flag: '🇪🇹', native: 'አማርኛ' },
+];
+
+export interface StoryboardStep {
+  id: number;
+  title: string;
+  visualPrompt: string;
+  narrative: string;
+  status: 'pending' | 'generating' | 'completed' | 'error';
+  imageUrl?: string;
+  videoUrl?: string;
+  videoObject?: any;
+}
+
+export interface SocialPack {
+  platform: 'LinkedIn' | 'Instagram' | 'TikTok' | 'YouTube' | 'Facebook';
+  copy: string;
+  hashtags: string[];
+  suggestedTitle: string;
+}
+
+export interface BrandKit {
+  logo?: string;
+  primaryColor: string;
+  secondaryColor: string;
+  fontPreference: string;
+}
+
+export interface TimelapseProject {
+  id: string;
+  title: string;
+  roomType: string;
+  stylePreset: string;
+  targetAudience: string;
+  language: Language;
+  references: string[]; // 0-3 base64 images
+  brandKit: BrandKit;
+  steps: StoryboardStep[];
+  socialPack?: SocialPack[];
+  finalRenderUrls?: string[];
+  createdAt: number;
+}
+
+export type VoiceName = 'Zephyr' | 'Puck' | 'Charon' | 'Kore' | 'Fenrir' | 'Aoede';
+
+export const AVAILABLE_VOICES: { name: VoiceName; label: string; description: string }[] = [
+  { name: 'Aoede', label: 'Aoede', description: 'Soft, ethereal and melodic storytelling' },
+  { name: 'Kore', label: 'Kore', description: 'Deep, mature and wisdom-infused' },
+  { name: 'Zephyr', label: 'Zephyr', description: 'Warm, balanced and professional' },
 ];
 
 export interface StoryData {
@@ -55,25 +88,6 @@ export interface StoryData {
   worldBuilding: string;
   sensoryDetails: string[];
   plotTwists: string[];
-}
-
-export type StoryGenre = 'fantasy' | 'scifi' | 'noir' | 'romance' | 'horror' | 'historical';
-
-export type VoiceName = 'Zephyr' | 'Puck' | 'Charon' | 'Kore' | 'Fenrir';
-
-export const AVAILABLE_VOICES: { name: VoiceName; label: string; description: string }[] = [
-  { name: 'Kore', label: 'Kore', description: 'Deep, wisdom-infused narration' },
-  { name: 'Zephyr', label: 'Zephyr', description: 'Warm, soothing professional tone' },
-  { name: 'Puck', label: 'Puck', description: 'Bright, energetic and witty' },
-  { name: 'Charon', label: 'Charon', description: 'Grave and resonant' },
-  { name: 'Fenrir', label: 'Fenrir', description: 'Commanding and authoritative' },
-];
-
-/* Define missing types reported in errors */
-
-export interface ConversationSuggestion {
-  text: string;
-  type: 'relance' | 'empathy' | 'humor';
 }
 
 export type AspectRatio = "1:1" | "3:4" | "4:3" | "9:16" | "16:9";
@@ -87,37 +101,43 @@ export interface ChatMessage {
 
 export type IAMode = 'coaching' | 'debate';
 
+export interface ConversationSuggestion {
+  text: string;
+  type: 'relance' | 'empathy' | 'humor';
+}
+
 export interface SessionReport {
   id: string;
-  duration: number;
-  confidence: number;
-  clarity: number;
+  summary: string;
+  eloquenceScore: number;
+  suggestions: string[];
 }
 
 export interface LiveReaction {
-  type: string;
-  timestamp: number;
+  id: string;
+  type: 'heart' | 'clap' | 'fire';
+  count: number;
 }
 
 export const UI_TRANSLATIONS: Record<string, any> = {
   'fr-FR': {
     writer: "Écrivain",
+    timelapse: "Timelapse",
     studio: "Studio",
     lab: "Lab",
     intel: "Intelligence",
     social: "Social",
     profile: "Profil",
     settings: "Paramètres",
-    omni: "Omni",
   },
   'en-US': {
     writer: "Writer",
+    timelapse: "Timelapse",
     studio: "Studio",
     lab: "Lab",
     intel: "Intelligence",
     social: "Social",
     profile: "Profile",
     settings: "Settings",
-    omni: "Omni",
   }
 };

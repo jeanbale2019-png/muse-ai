@@ -22,7 +22,7 @@ const genAI = API_KEY ? new GoogleGenAI({ apiKey: API_KEY }) : null;
 
 app.use(cors());
 app.use(compression());
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '20mb' })); // Increased limit for images
 
 app.use(helmet({
   contentSecurityPolicy: {
@@ -57,7 +57,6 @@ app.post('/api/ai/analyze-image', async (req, res) => {
   if (!genAI) return res.status(503).json({ error: "AI Key missing on server" });
   try {
     const { base64, mimeType, language, genre } = req.body;
-    // Use gemini-3-flash-preview for text-based image analysis
     const response = await genAI.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: {
@@ -68,7 +67,6 @@ app.post('/api/ai/analyze-image', async (req, res) => {
       },
       config: { responseMimeType: "application/json" }
     });
-    // Correctly accessing .text property
     res.json(JSON.parse(response.text || "{}"));
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -79,13 +77,11 @@ app.post('/api/ai/chat', async (req, res) => {
   if (!genAI) return res.status(503).json({ error: "AI Key missing" });
   try {
     const { message, history, language } = req.body;
-    // Use gemini-3-flash-preview for chat
     const response = await genAI.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: message,
       config: { systemInstruction: `Respond in ${language}.` }
     });
-    // Correctly accessing .text property
     res.json({ text: response.text });
   } catch (error) {
     res.status(500).json({ error: error.message });

@@ -12,7 +12,8 @@ interface EloquenceMenuProps {
 
 const EloquenceMenu: React.FC<EloquenceMenuProps> = ({ activeTab, onTabChange, expanded, onToggle, userTier }) => {
   const baseItems: { id: Tab; icon: string; label: string; desc: string; locked?: boolean }[] = [
-    { id: 'writer', icon: 'fa-feather-pointed', label: 'Écrivain', desc: 'Ghostwriting IA' },
+    { id: 'timelapse', icon: 'fa-film', label: 'Timelapse', desc: 'Project Narratives' },
+    { id: 'writer', icon: 'fa-feather-pointed', label: 'Ghostwriter', desc: 'Story Engine' },
     { id: 'studio', icon: 'fa-wand-magic-sparkles', label: 'Studio', desc: 'Visual Forge' },
     { id: 'lab', icon: 'fa-microphone-lines', label: 'Le Lab', desc: 'Solo Coaching' },
     { id: 'live', icon: 'fa-tower-broadcast', label: 'Live Room', desc: 'Audio & Video', locked: userTier === 'free' },
@@ -31,8 +32,8 @@ const EloquenceMenu: React.FC<EloquenceMenuProps> = ({ activeTab, onTabChange, e
           <i className="fa-solid fa-m text-white text-sm"></i>
         </div>
         {expanded && (
-          <span className="hidden md:inline font-serif font-black text-xl tracking-tighter animate-in fade-in slide-in-from-left-2 duration-500">
-            SOCIAL <span className="text-[#3B82F6] italic">MUSE</span>
+          <span className="hidden md:inline font-serif font-black text-lg tracking-tighter animate-in fade-in slide-in-from-left-2 duration-500">
+            BUILD <span className="text-[#3B82F6] italic">TO</span> TL
           </span>
         )}
       </div>

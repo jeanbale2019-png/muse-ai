@@ -4,21 +4,13 @@ import {
   analyzeImageAndGhostwrite, 
   generateTTS, 
   playTTS, 
-  editImage, 
-  generateVeoVideo, 
-  extendVeoVideo,
   decode, 
   pcmToWav, 
-  triggerDownload, 
-  downloadFromUrl,
-  handleGeminiError, 
-  ensureApiKey, 
-  saveToGallery,
-  getAI
+  triggerDownload,
+  handleGeminiError,
+  generateVeoVideo
 } from '../services/geminiService';
-import { checkPermission, registerChallengeUsage } from '../services/subscriptionService';
-import { StoryData, AVAILABLE_VOICES, VoiceName, Language, StoryGenre, UserAccount } from '../types';
-import { i18n } from '../services/i18nService';
+import { StoryData, AVAILABLE_VOICES, VoiceName, Language, UserAccount } from '../types';
 
 interface VisualLabProps {
   language: Language;
@@ -26,142 +18,75 @@ interface VisualLabProps {
   db: any;
 }
 
-const GENRES: { id: StoryGenre; label: string; icon: string; color: string }[] = [
-  { id: 'fantasy', label: 'Fantasy', icon: 'fa-wand-sparkles', color: 'indigo' },
-  { id: 'scifi', label: 'Sci-Fi', icon: 'fa-user-robot', color: 'blue' },
-  { id: 'noir', label: 'Noir', icon: 'fa-hat-cowboy', color: 'zinc' },
-  { id: 'horror', label: 'Horror', icon: 'fa-skull', color: 'rose' },
-  { id: 'romance', label: 'Romance', icon: 'fa-heart', color: 'pink' },
-  { id: 'historical', label: 'Historical', icon: 'fa-landmark', color: 'amber' },
-];
-
-const VisualLab: React.FC<VisualLabProps> = ({ language, user, db }) => {
+const VisualLab: React.FC<VisualLabProps> = ({ language }) => {
   const [image, setImage] = useState<string | null>(null);
-  const [mimeType, setMimeType] = useState('');
-  const [selectedGenre, setSelectedGenre] = useState<StoryGenre>('fantasy');
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [processingMessage, setProcessingMessage] = useState(i18n.t('loading_vision'));
-  const [error, setError] = useState<string | null>(null);
-  const [story, setStory] = useState<StoryData | null>(null);
-  const [editPrompt, setEditPrompt] = useState('');
-  const [videoUrl, setVideoUrl] = useState<string | null>(null);
-  const [lastVideoObject, setLastVideoObject] = useState<any>(null);
-  const [selectedVoice, setSelectedVoice] = useState<VoiceName>('Kore');
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isReading, setIsReading] = useState(false);
+  const [story, setStory] = useState<StoryData | null>(null);
+  const [selectedVoice, setSelectedVoice] = useState<VoiceName>('Kore');
   const [lastAudioBase64, setLastAudioBase64] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'narrative' | 'world' | 'sensory' | 'twists'>('narrative');
+  const [error, setError] = useState<string | null>(null);
+  
+  // Video States
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
+  const [playbackSpeed, setPlaybackSpeed] = useState(1);
+  const [volume, setVolume] = useState(1);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const videoContainerRef = useRef<HTMLDivElement>(null);
 
-  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const perm = checkPermission(user, 'challenge');
-    if (!perm.allowed) {
-      setError(perm.message || "Limit reached.");
-      return;
-    }
-
+    setError(null);
     const reader = new FileReader();
-    reader.onload = async () => {
+    reader.onloadend = async () => {
       const base64 = (reader.result as string).split(',')[1];
       setImage(reader.result as string);
-      setMimeType(file.type);
-      setVideoUrl(null);
-      setLastVideoObject(null);
-      setStory(null);
+      setIsAnalyzing(true);
       setLastAudioBase64(null);
-      setIsProcessing(true);
-      setProcessingMessage(i18n.t('loading_vision'));
-      setError(null);
+      setStory(null);
+      setVideoUrl(null);
       
       try {
-        const result = await analyzeImageAndGhostwrite(base64, file.type, language, selectedGenre);
+        const result = await analyzeImageAndGhostwrite(base64, file.type, language);
         setStory(result);
-        if (user && db) await registerChallengeUsage(user, db);
       } catch (err: any) {
-        handleGeminiError(err);
-        setError("AI Analysis failed. Please check your connection or API key.");
+        console.error(err);
+        setError("Failed to analyze image. Ensure your API key is valid.");
       } finally {
-        setIsProcessing(false);
+        setIsAnalyzing(false);
       }
     };
     reader.readAsDataURL(file);
   };
 
-  const onEdit = async () => {
-    if (!image || !editPrompt) return;
-    
-    setIsProcessing(true);
-    setProcessingMessage(i18n.t('loading_alchemy'));
+  const generateCinematicPreview = async () => {
+    if (!image || !story) return;
+    setIsGeneratingVideo(true);
     setError(null);
     try {
-      const base64 = image.split(',')[1];
-      const result = await editImage(base64, mimeType, editPrompt);
-      if (result) {
-        setImage(result);
-        setEditPrompt('');
-        const newStory = await analyzeImageAndGhostwrite(result.split(',')[1], 'image/png', language, selectedGenre);
-        setStory(newStory);
+      const prompt = `Cinematic visualization: ${story.openingParagraph}. Mood: ${story.mood}. Sensory details: ${story.sensoryDetails.join(', ')}.`;
+      const res = await generateVeoVideo(prompt, image.split(',')[1], 'image/jpeg', '16:9', '720p');
+      if (res) {
+        setVideoUrl(res.url);
       }
     } catch (err: any) {
       handleGeminiError(err);
-      setError("Image refinement failed.");
+      setError("Failed to generate cinematic preview.");
     } finally {
-      setIsProcessing(false);
+      setIsGeneratingVideo(false);
     }
   };
 
-  const onAnimate = async () => {
-    if (!image) return;
-    setIsProcessing(true);
-    setProcessingMessage(i18n.t('loading_motion'));
-    setError(null);
-    try {
-      await ensureApiKey(); 
-      const animationPrompt = story 
-        ? `Cinematic high-quality animation for a ${selectedGenre} scene. ${story.mood}. ${story.openingParagraph}`
-        : `Animate this ${selectedGenre} scene beautifully with cinematic lighting.`;
-      
-      const res = await generateVeoVideo(animationPrompt, image.split(',')[1], mimeType);
-      setVideoUrl(res.url || null);
-      setLastVideoObject(res.videoObject || null);
-    } catch (err: any) {
-      handleGeminiError(err);
-      setError("Animation failed. This feature requires a paid API key.");
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const onExtend = async () => {
-    if (!lastVideoObject) return;
-    setIsProcessing(true);
-    setProcessingMessage("Extending narrative by 7 seconds...");
-    setError(null);
-    try {
-      await ensureApiKey();
-      const extendPrompt = editPrompt || (story ? `The sequence continues, unveiling more depth. ${story.mood}` : "The scene continues to unfold.");
-      const res = await extendVeoVideo(extendPrompt, lastVideoObject);
-      setVideoUrl(res.url || null);
-      setLastVideoObject(res.videoObject || null);
-      setEditPrompt('');
-    } catch (err: any) {
-      handleGeminiError(err);
-      setError("Extension failed. Only 720p videos can be extended.");
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const onDownloadVideo = () => {
-    if (!videoUrl) return;
-    downloadFromUrl(videoUrl, `manuscript-video-${Date.now()}.mp4`);
-  };
-
-  const onReadAloud = async () => {
+  const handleReadAloud = async () => {
     if (!story) return;
     setIsReading(true);
+    setError(null);
     try {
       const base64 = await generateTTS(story.openingParagraph, selectedVoice);
       if (base64) {
@@ -169,13 +94,34 @@ const VisualLab: React.FC<VisualLabProps> = ({ language, user, db }) => {
         await playTTS(base64);
       }
     } catch (err: any) {
-      handleGeminiError(err);
+      console.error(err);
+      setError("Audio generation failed.");
     } finally {
       setIsReading(false);
     }
   };
 
-  const handleDownloadAudio = () => {
+  const toggleFullscreen = () => {
+    if (!videoContainerRef.current) return;
+    if (!document.fullscreenElement) {
+      videoContainerRef.current.requestFullscreen().catch(err => {
+        console.error(`Error attempting to enable full-screen mode: ${err.message}`);
+      });
+      setIsFullscreen(true);
+    } else {
+      document.exitFullscreen();
+      setIsFullscreen(false);
+    }
+  };
+
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.playbackRate = playbackSpeed;
+      videoRef.current.volume = volume;
+    }
+  }, [playbackSpeed, volume]);
+
+  const onDownloadAudio = () => {
     if (!lastAudioBase64) return;
     const pcmData = new Int16Array(decode(lastAudioBase64).buffer);
     const wavBlob = pcmToWav(pcmData, 24000);
@@ -185,281 +131,197 @@ const VisualLab: React.FC<VisualLabProps> = ({ language, user, db }) => {
   };
 
   return (
-    <div className="max-w-7xl mx-auto space-y-8 animate-in fade-in duration-700 pb-20">
-      {/* Header Area */}
-      <div className="text-center space-y-6 max-w-3xl mx-auto px-4">
-        <h2 className="text-4xl md:text-6xl font-serif font-light tracking-tighter text-white">
-          Manuscript <span className="text-indigo-400 italic">Studio</span>
-        </h2>
-        <p className="text-zinc-500 text-lg font-light">Cast a visual seed. Let the Muse weave the narrative.</p>
-        
-        <div className="flex flex-wrap justify-center gap-3 pt-4">
-          {GENRES.map((genre) => (
-            <button 
-              key={genre.id} 
-              onClick={() => setSelectedGenre(genre.id)} 
-              className={`px-5 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-widest border transition-all ${selectedGenre === genre.id ? 'bg-indigo-500/20 border-indigo-500 text-indigo-400' : 'bg-zinc-900/50 border-white/5 text-zinc-600 hover:text-zinc-400'}`}
-            >
-              <i className={`fa-solid ${genre.icon} mr-2`}></i>{genre.label}
-            </button>
-          ))}
-        </div>
+    <div className="max-w-4xl mx-auto space-y-12 animate-in fade-in duration-700">
+      <div className="text-center space-y-4">
+        <h1 className="text-5xl font-serif font-light tracking-tight text-white">Muse <span className="text-blue-400">&</span> Vision</h1>
+        <p className="text-zinc-400 text-lg">Upload an image to spark a world-building opening.</p>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-10 px-4">
-        {/* Left Panel: Visual Source */}
-        <div className="xl:col-span-5 space-y-8">
-          <div className="group relative aspect-[4/3] glass rounded-[3rem] overflow-hidden border border-white/5 bg-black/40 shadow-2xl flex items-center justify-center">
-            {videoUrl ? (
-              <>
-                <video key={videoUrl} src={videoUrl} controls autoPlay loop className="w-full h-full object-cover" />
-                <button 
-                  onClick={onDownloadVideo}
-                  className="absolute top-6 left-6 w-12 h-12 glass rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-white/10 z-10"
-                  title="Download Video"
-                >
-                  <i className="fa-solid fa-download text-white"></i>
-                </button>
-              </>
-            ) : image ? (
-              <img src={image} className="w-full h-full object-cover" alt="Source Inspiration" />
+      {error && (
+        <div className="bg-rose-500/10 border border-rose-500/20 p-4 rounded-2xl flex items-center justify-between text-rose-400 animate-in shake">
+          <div className="flex items-center space-x-3">
+            <i className="fa-solid fa-circle-exclamation"></i>
+            <span className="text-xs font-black uppercase tracking-widest">{error}</span>
+          </div>
+          <button onClick={() => setError(null)}><i className="fa-solid fa-xmark"></i></button>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-12 items-start">
+        <div className="space-y-6">
+          <div 
+            onClick={() => fileInputRef.current?.click()}
+            className="aspect-square w-full glass rounded-[3rem] flex flex-col items-center justify-center cursor-pointer overflow-hidden border-dashed border-2 border-zinc-800 hover:border-blue-500 transition-all group shadow-2xl"
+          >
+            {image ? (
+              <img src={image} className="w-full h-full object-cover" alt="Uploaded scene" />
             ) : (
-              <div 
-                onClick={() => fileInputRef.current?.click()}
-                className="flex flex-col items-center space-y-6 text-zinc-700 cursor-pointer hover:text-indigo-400 transition-colors"
-              >
-                <div className="w-20 h-20 bg-zinc-900/50 rounded-full flex items-center justify-center border border-white/5 group-hover:scale-110 transition-transform">
-                  <i className="fa-solid fa-cloud-arrow-up text-3xl"></i>
+              <div className="flex flex-col items-center space-y-3 group-hover:scale-110 transition-transform">
+                <div className="p-6 bg-zinc-900 rounded-full border border-white/5">
+                  <i className="fa-solid fa-plus text-3xl text-zinc-600 group-hover:text-blue-400 transition-colors"></i>
                 </div>
-                <div className="text-center">
-                  <p className="text-[10px] font-black uppercase tracking-widest">Select Narrative Anchor</p>
-                  <p className="text-[8px] opacity-40 uppercase tracking-tighter mt-1">Image Reference Required</p>
-                </div>
+                <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Initial Vision</span>
               </div>
-            )}
-            
-            {image && !videoUrl && (
-              <button 
-                onClick={() => fileInputRef.current?.click()}
-                className="absolute top-6 right-6 w-12 h-12 glass rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-white/10"
-              >
-                <i className="fa-solid fa-sync text-white"></i>
-              </button>
             )}
           </div>
+          <input 
+            type="file" 
+            ref={fileInputRef} 
+            className="hidden" 
+            accept="image/*" 
+            onChange={handleFileChange} 
+          />
 
-          <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleFile} />
-
-          {/* Refinement Panel */}
-          <div className="glass p-8 rounded-[3rem] space-y-6 border border-white/5 bg-[#0c0c0e]/60">
-            <div className="flex justify-between items-center">
-              <h3 className="text-[10px] font-black uppercase tracking-widest text-indigo-400">Alchemy Forge</h3>
-              <i className="fa-solid fa-wand-sparkles text-zinc-800"></i>
+          <div className="glass p-6 rounded-[2.5rem] space-y-4">
+            <div className="flex items-center justify-between">
+              <label className="text-[9px] font-black uppercase tracking-[0.3em] text-zinc-500">Narrator</label>
+              <span className="text-[8px] font-bold text-blue-400 uppercase bg-blue-500/10 px-2 py-0.5 rounded-full">Pro Voice</span>
             </div>
-            <textarea 
-              className="w-full bg-zinc-900/50 border border-zinc-800 rounded-2xl px-6 py-4 text-sm outline-none focus:border-indigo-500/50 resize-none min-h-[100px] placeholder:text-zinc-800"
-              placeholder="Refine the visual... e.g., 'Add thick cinematic fog' or 'Change the lighting to sunset gold'"
-              value={editPrompt}
-              onChange={e => setEditPrompt(e.target.value)}
-            />
-            <div className="grid grid-cols-2 gap-4">
-              <button 
-                onClick={onEdit}
-                disabled={!image || isProcessing || !editPrompt}
-                className="py-4 bg-white text-black rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-zinc-200 transition-all disabled:opacity-20"
+            <div className="relative">
+              <select 
+                value={selectedVoice}
+                onChange={(e) => setSelectedVoice(e.target.value as VoiceName)}
+                className="w-full bg-zinc-950 border border-white/5 text-zinc-200 text-xs rounded-2xl px-5 py-4 appearance-none focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-all cursor-pointer"
               >
-                Refine Vision
-              </button>
-              <button 
-                onClick={onAnimate}
-                disabled={!image || isProcessing}
-                className="py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-indigo-500 transition-all disabled:opacity-20 shadow-lg shadow-indigo-600/20"
-              >
-                Animate Scene
-              </button>
-            </div>
-            
-            {videoUrl && (
-              <div className="space-y-3">
-                <button 
-                  onClick={onExtend}
-                  disabled={isProcessing}
-                  className="w-full py-4 bg-emerald-600 text-white rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-lg shadow-emerald-600/20 hover:bg-emerald-500 transition-all flex items-center justify-center space-x-2"
-                >
-                  <i className="fa-solid fa-clock-rotate-left"></i>
-                  <span>Extend +7s Narrative</span>
-                </button>
-                <button 
-                  onClick={onDownloadVideo}
-                  className="w-full py-3 bg-zinc-800 text-zinc-400 rounded-2xl font-black uppercase text-[9px] tracking-widest hover:text-white transition-all flex items-center justify-center space-x-2"
-                >
-                  <i className="fa-solid fa-file-video"></i>
-                  <span>Download Video</span>
-                </button>
+                {AVAILABLE_VOICES.map((v) => (
+                  <option key={v.name} value={v.name}>{v.label} — {v.description}</option>
+                ))}
+              </select>
+              <div className="absolute right-5 top-1/2 -translate-y-1/2 pointer-events-none text-zinc-500">
+                <i className="fa-solid fa-chevron-down text-[10px]"></i>
               </div>
-            )}
+            </div>
           </div>
         </div>
 
-        {/* Right Panel: The Manuscript */}
-        <div className="xl:col-span-7 flex flex-col">
-          {story ? (
-            <div className="glass p-10 md:p-16 rounded-[3.5rem] bg-[#0c0c0e]/80 border border-white/5 shadow-3xl flex-1 flex flex-col min-h-[600px] relative overflow-hidden">
-              <div className="absolute top-0 right-0 p-8 opacity-10 pointer-events-none">
-                <i className="fa-solid fa-feather text-8xl"></i>
+        <div className="space-y-8">
+          {isAnalyzing ? (
+            <div className="glass h-full min-h-[450px] rounded-[3.5rem] flex flex-col items-center justify-center space-y-6 p-12">
+              <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+              <div className="text-center space-y-2">
+                <p className="text-zinc-400 font-mono text-[10px] uppercase tracking-[0.5em] animate-pulse">Scanning Visual Corpus...</p>
+                <p className="text-[9px] text-zinc-600 font-black uppercase">Establishing Neural Context</p>
               </div>
-
-              {/* Tabs */}
-              <div className="flex space-x-8 border-b border-white/5 mb-10 pb-4 overflow-x-auto no-scrollbar">
-                {(['narrative', 'world', 'sensory', 'twists'] as const).map(tab => (
-                  <button 
-                    key={tab} 
-                    onClick={() => setActiveTab(tab)} 
-                    className={`text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap ${activeTab === tab ? 'text-indigo-400 border-b-2 border-indigo-400' : 'text-zinc-600 hover:text-zinc-400'}`}
-                  >
-                    {i18n.t(`tab_${tab}`)}
-                  </button>
-                ))}
-              </div>
-
-              <div className="flex-1 overflow-y-auto no-scrollbar">
-                {activeTab === 'narrative' && (
-                  <div className="space-y-10 animate-in fade-in slide-in-from-right-4">
-                    <div className="space-y-2">
-                       <span className="text-[10px] font-black uppercase tracking-widest text-indigo-500/50">Mood: {story.mood}</span>
-                       <p className="text-3xl md:text-4xl font-serif italic text-white leading-[1.6] first-letter:text-7xl first-letter:font-black first-letter:mr-3 first-letter:float-left first-letter:text-indigo-500">
-                        {story.openingParagraph}
-                      </p>
-                    </div>
-                    
-                    <div className="space-y-4 pt-8 border-t border-white/5">
-                      <h4 className="text-[10px] font-black uppercase tracking-widest text-zinc-600">Dramatis Personae</h4>
-                      <div className="flex flex-wrap gap-2">
-                        {story.characters?.map((char, i) => (
-                          <span key={i} className="px-4 py-2 bg-indigo-500/10 border border-indigo-500/20 rounded-xl text-[10px] text-indigo-300 font-bold uppercase tracking-widest">
-                            {char}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {activeTab === 'world' && (
-                  <div className="space-y-10 animate-in fade-in slide-in-from-right-4">
-                    <div className="space-y-4">
-                      <h4 className="text-[10px] font-black uppercase tracking-widest text-indigo-400">Scene Analysis</h4>
-                      <p className="text-xl font-light text-zinc-300 leading-relaxed italic">{story.sceneAnalysis}</p>
-                    </div>
-                    <div className="space-y-4 pt-8 border-t border-white/5">
-                      <h4 className="text-[10px] font-black uppercase tracking-widest text-zinc-600">World Building</h4>
-                      <p className="text-sm text-zinc-500 leading-relaxed">{story.worldBuilding}</p>
-                    </div>
-                  </div>
-                )}
-
-                {activeTab === 'sensory' && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-in fade-in slide-in-from-right-4">
-                    {story.sensoryDetails?.map((detail, i) => (
-                      <div key={i} className="p-6 bg-white/5 border border-white/5 rounded-[2rem] flex items-center space-x-4 group hover:bg-white/10 transition-all">
-                        <div className="w-8 h-8 rounded-full bg-zinc-900 flex items-center justify-center text-indigo-500 text-xs">
-                          {i + 1}
-                        </div>
-                        <p className="text-xs text-zinc-400 italic font-medium">"{detail}"</p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {activeTab === 'twists' && (
-                  <div className="space-y-6 animate-in fade-in slide-in-from-right-4">
-                    {story.plotTwists?.map((twist, i) => (
-                      <div key={i} className="p-8 bg-rose-500/5 border border-rose-500/10 rounded-[2.5rem] relative group overflow-hidden">
-                        <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-20 transition-opacity">
-                          <i className="fa-solid fa-shuffle text-4xl"></i>
-                        </div>
-                        <p className="text-lg font-serif italic text-rose-200">"{twist}"</p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Narrator Controls */}
-              <div className="pt-10 border-t border-white/5 flex items-center justify-between">
-                <div className="flex flex-col space-y-1">
-                  <span className="text-[8px] font-black uppercase tracking-widest text-zinc-600">Narrator Persona</span>
-                  <select 
-                    value={selectedVoice} 
-                    onChange={e => setSelectedVoice(e.target.value as VoiceName)}
-                    className="bg-transparent border-none text-[10px] font-black uppercase tracking-widest text-indigo-400 focus:ring-0 outline-none cursor-pointer"
-                  >
-                    {AVAILABLE_VOICES.map(v => <option key={v.name} value={v.name} className="bg-[#0c0c0e]">{v.label}</option>)}
-                  </select>
-                </div>
-
-                <div className="flex items-center space-x-4">
-                  {lastAudioBase64 && (
+            </div>
+          ) : story ? (
+            <div className="glass rounded-[3.5rem] p-10 space-y-8 animate-in slide-in-from-bottom-8 duration-700 shadow-2xl relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/5 blur-[50px] pointer-events-none"></div>
+              
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-black uppercase tracking-[0.4em] text-blue-400">Chronicle Genesis</span>
+                  <div className="flex space-x-2">
                     <button 
-                      onClick={handleDownloadAudio}
-                      className="w-12 h-12 glass rounded-full flex items-center justify-center text-zinc-500 hover:text-white transition-all"
-                      title="Export Narrator Voice"
+                      onClick={handleReadAloud} 
+                      disabled={isReading} 
+                      className={`w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center transition-all ${isReading ? 'text-blue-400' : 'text-zinc-500 hover:text-white'}`}
                     >
-                      <i className="fa-solid fa-download"></i>
+                       {isReading ? <i className="fa-solid fa-spinner animate-spin"></i> : <i className="fa-solid fa-volume-high"></i>}
                     </button>
-                  )}
+                    {lastAudioBase64 && (
+                      <button onClick={onDownloadAudio} className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-zinc-500 hover:text-white transition-all">
+                         <i className="fa-solid fa-download"></i>
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <p className="text-2xl md:text-3xl font-serif italic text-zinc-200 leading-[1.6] transition-all">
+                  "{story.openingParagraph}"
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-8 pt-8 border-t border-white/5">
+                <div className="space-y-2">
+                  <span className="text-[9px] font-black uppercase tracking-widest text-zinc-600">Dominant Mood</span>
+                  <p className="text-sm font-medium text-zinc-300">{story.mood}</p>
+                </div>
+                <div className="space-y-2">
+                  <span className="text-[9px] font-black uppercase tracking-widest text-zinc-600">Scene Vectors</span>
+                  <p className="text-sm font-medium text-zinc-300 capitalize">{story.sceneAnalysis?.split(' ')?.[0] || 'Fiction'}</p>
+                </div>
+              </div>
+
+              {/* Cinematic Preview Trigger */}
+              <div className="pt-4">
+                {videoUrl ? (
+                  <div ref={videoContainerRef} className="relative aspect-video rounded-3xl overflow-hidden border border-white/10 shadow-2xl group bg-black">
+                     <video 
+                        ref={videoRef}
+                        src={videoUrl} 
+                        className="w-full h-full object-cover"
+                        autoPlay
+                        loop
+                        playsInline
+                     />
+                     {/* Video Controls Overlay */}
+                     <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity p-6 flex flex-col justify-end">
+                        <div className="flex items-center justify-between">
+                           <div className="flex items-center space-x-4">
+                              <div className="flex items-center space-x-2 bg-black/40 backdrop-blur-md rounded-xl p-1 px-3 border border-white/10">
+                                 <i className={`fa-solid ${volume === 0 ? 'fa-volume-mute' : 'fa-volume-high'} text-[10px] text-zinc-400`}></i>
+                                 <input 
+                                    type="range" 
+                                    min="0" max="1" step="0.1" 
+                                    value={volume}
+                                    onChange={(e) => setVolume(parseFloat(e.target.value))}
+                                    className="w-16 accent-blue-500 cursor-pointer"
+                                 />
+                              </div>
+                              <div className="flex bg-black/40 backdrop-blur-md rounded-xl p-1 border border-white/10">
+                                 {[0.5, 1, 1.5, 2].map(speed => (
+                                    <button 
+                                      key={speed}
+                                      onClick={() => setPlaybackSpeed(speed)}
+                                      className={`px-3 py-1.5 text-[8px] font-black uppercase rounded-lg transition-all ${playbackSpeed === speed ? 'bg-blue-600 text-white' : 'text-zinc-500'}`}
+                                    >
+                                       {speed}x
+                                    </button>
+                                 ))}
+                              </div>
+                           </div>
+                           <button 
+                            onClick={toggleFullscreen}
+                            className="w-10 h-10 rounded-xl bg-black/40 backdrop-blur-md border border-white/10 text-white flex items-center justify-center hover:bg-blue-600 transition-all"
+                           >
+                              <i className={`fa-solid ${isFullscreen ? 'fa-compress' : 'fa-expand'}`}></i>
+                           </button>
+                        </div>
+                     </div>
+                  </div>
+                ) : (
                   <button 
-                    onClick={onReadAloud}
-                    disabled={isReading}
-                    className="w-16 h-16 bg-white text-black rounded-full shadow-2xl flex items-center justify-center hover:scale-110 active:scale-95 transition-all"
+                    onClick={generateCinematicPreview}
+                    disabled={isGeneratingVideo}
+                    className="w-full py-5 bg-white/5 border border-dashed border-zinc-800 rounded-3xl text-[10px] font-black uppercase tracking-[0.3em] text-zinc-500 hover:border-blue-500/50 hover:text-blue-400 transition-all flex items-center justify-center space-x-3 group"
                   >
-                    {isReading ? (
-                      <div className="w-6 h-6 border-2 border-black border-t-transparent rounded-full animate-spin"></div>
+                    {isGeneratingVideo ? (
+                      <>
+                        <i className="fa-solid fa-spinner animate-spin"></i>
+                        <span>Neural Rendering...</span>
+                      </>
                     ) : (
-                      <i className="fa-solid fa-volume-high text-xl"></i>
+                      <>
+                        <i className="fa-solid fa-clapperboard group-hover:animate-bounce"></i>
+                        <span>Generate Cinematic Preview</span>
+                      </>
                     )}
                   </button>
-                </div>
+                )}
               </div>
             </div>
           ) : (
-            <div className="flex-1 glass rounded-[3.5rem] border-2 border-dashed border-zinc-900 flex flex-col items-center justify-center text-center p-12 space-y-6">
-              <i className="fa-solid fa-feather-pointed text-5xl text-zinc-900"></i>
-              <div className="space-y-2">
-                <h3 className="text-xl font-serif text-zinc-800">The Script Awaits</h3>
-                <p className="text-[10px] font-black uppercase tracking-[0.4em] text-zinc-800 opacity-40">Cast your vision anchor to begin</p>
-              </div>
+            <div className="h-full min-h-[450px] rounded-[3.5rem] border-2 border-dashed border-zinc-900 flex flex-col items-center justify-center text-zinc-600 space-y-6">
+               <div className="w-20 h-20 bg-zinc-950 rounded-[2rem] flex items-center justify-center border border-white/5 shadow-inner">
+                  <i className="fa-solid fa-feather-pointed text-2xl opacity-20"></i>
+               </div>
+               <div className="text-center space-y-1">
+                  <p className="text-[10px] uppercase font-black tracking-[0.4em] opacity-40">Ready to ghostwrite</p>
+                  <p className="text-[9px] uppercase font-bold text-zinc-700 tracking-widest">Awaiting visual signal</p>
+               </div>
             </div>
           )}
         </div>
       </div>
-
-      {isProcessing && (
-        <div className="fixed inset-0 bg-[#09090b]/95 backdrop-blur-3xl z-[200] flex items-center justify-center text-center animate-in fade-in">
-          <div className="space-y-12">
-            <div className="relative w-24 h-24 mx-auto">
-              <div className="absolute inset-0 border-4 border-indigo-500/10 rounded-full"></div>
-              <div className="absolute inset-0 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
-            </div>
-            <div className="space-y-4">
-              <h3 className="text-4xl font-serif text-white tracking-tighter">{processingMessage}</h3>
-              <p className="text-[10px] font-black uppercase tracking-[0.4em] text-indigo-400">Consulting the Oracle</p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {error && (
-        <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[250] animate-in slide-in-from-bottom-8">
-          <div className="bg-rose-600 text-white px-8 py-4 rounded-2xl flex items-center space-x-4 shadow-2xl">
-            <i className="fa-solid fa-triangle-exclamation"></i>
-            <span className="text-[10px] font-black uppercase tracking-widest">{error}</span>
-            <button onClick={() => setError(null)} className="ml-4 opacity-50 hover:opacity-100 transition-opacity">
-              <i className="fa-solid fa-xmark"></i>
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

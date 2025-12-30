@@ -53,7 +53,13 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ targetUserId, onBack, languag
 
   const [profile, setProfile] = useState<UserProfile>(() => {
     const saved = localStorage.getItem(`muse_profile_${effectiveUserId}`);
-    if (saved) return JSON.parse(saved);
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.warn("Corrupted local profile");
+      }
+    }
     
     // Default fallback
     return {
@@ -425,17 +431,17 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ targetUserId, onBack, languag
                  {isOwnProfile ? (
                    <>
                     <div className="flex justify-between items-center px-1">
-                      <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">{savedCreations.length} items in Vault</p>
+                      <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">{(savedCreations || []).length} items in Vault</p>
                     </div>
                     
-                    {savedCreations.length === 0 ? (
+                    {(!savedCreations || savedCreations.length === 0) ? (
                       <div className="py-20 flex flex-col items-center justify-center text-center opacity-20 space-y-4">
                          <i className="fa-solid fa-box-open text-4xl"></i>
                          <p className="text-[10px] font-black uppercase tracking-widest">Vault is empty</p>
                       </div>
                     ) : (
                       <div className="grid grid-cols-2 gap-4">
-                        {savedCreations.map((item) => (
+                        {(savedCreations || []).map((item) => (
                           <div key={item.id} className="group relative aspect-square rounded-[2rem] overflow-hidden bg-[#0c0c0e] shadow-xl border border-zinc-200/50 cursor-pointer group">
                             {item.type === 'video' ? (
                               <video src={item.url} className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity" />
@@ -445,7 +451,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ targetUserId, onBack, languag
                             
                             <div className="absolute inset-0 flex flex-col justify-end p-4 bg-gradient-to-t from-black/90 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
                                <span className="text-[8px] text-indigo-400 font-black uppercase mb-1">{item.type} • {item.quality}</span>
-                               <p className="text-[9px] text-white font-medium line-clamp-2 italic">"{item.prompt.substring(0, 50)}..."</p>
+                               <p className="text-[9px] text-white font-medium line-clamp-2 italic">"{item.prompt?.substring(0, 50)}..."</p>
                             </div>
                           </div>
                         ))}

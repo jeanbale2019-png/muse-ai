@@ -2,13 +2,13 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Modality, LiveServerMessage } from "@google/genai";
 import { handleGeminiError, getAI, encode, decode, decodeAudioData } from '../services/geminiService';
-import { Language, SessionReport, LiveReaction, UserAccount } from '../types';
+import { Language, SessionReport, LiveReaction, UserAccount, VoiceName } from '../types';
 
 // Firebase imports - Using esm.sh for consistent versioning
 import { initializeApp } from 'https://esm.sh/firebase@10.7.1/app';
 import { getFirestore, collection, onSnapshot, serverTimestamp, query, orderBy, limit, doc, setDoc, addDoc, getDoc, deleteDoc, updateDoc, increment } from 'https://esm.sh/firebase@10.7.1/firestore';
 
-type RoomTheme = 'eloquence' | 'philosophy' | 'zen' | 'debate';
+type RoomTheme = 'eloquence' | 'philosophy' | 'zen' | 'debate' | 'mythic';
 type PostType = 'photo' | 'video' | 'audio';
 
 interface SocialPost {
@@ -27,7 +27,7 @@ interface RoomConfig {
   description: string;
   icon: string;
   instruction: string;
-  voice: 'Zephyr' | 'Puck' | 'Charon' | 'Kore' | 'Fenrir';
+  voice: VoiceName;
   color: string;
 }
 
@@ -51,6 +51,15 @@ const ROOM_THEMES: RoomConfig[] = [
     instruction: "You are a thoughtful philosopher. Engage in a Socratic dialogue."
   },
   {
+    id: 'mythic',
+    title: 'The Mythic Archive',
+    description: 'A dreamlike space for poetic narration and folklore.',
+    icon: 'fa-wand-sparkles',
+    voice: 'Aoede',
+    color: 'fuchsia',
+    instruction: "You are a poetic storyteller. Speak in ethereal, melodic metaphors."
+  },
+  {
     id: 'debate',
     title: 'The Lion\'s Den',
     description: 'Sharp, fast-paced debate to test your arguments.',
@@ -58,15 +67,6 @@ const ROOM_THEMES: RoomConfig[] = [
     voice: 'Fenrir',
     color: 'rose',
     instruction: "You are a sharp debater. Respectfully but firmly challenge the user's logic."
-  },
-  {
-    id: 'zen',
-    title: 'The Silent Scribe',
-    description: 'A focused space where the AI listens and transcribes.',
-    icon: 'fa-scroll',
-    voice: 'Puck',
-    color: 'amber',
-    instruction: "You are a silent scribe. Do not speak. Focus purely on transcribing."
   }
 ];
 
@@ -94,8 +94,14 @@ const SocialFeed: React.FC<SocialFeedProps> = ({ onBack, onProfile, onStartLive,
   // Feed States
   const [posts, setPosts] = useState<SocialPost[]>([]);
   const [likedPosts, setLikedPosts] = useState<Set<string>>(() => {
-    const saved = localStorage.getItem('muse_liked_posts');
-    return new Set(saved ? JSON.parse(saved) : []);
+    try {
+      const saved = localStorage.getItem('muse_liked_posts');
+      if (!saved) return new Set();
+      const parsed = JSON.parse(saved);
+      return new Set(Array.isArray(parsed) ? parsed : []);
+    } catch (e) {
+      return new Set();
+    }
   });
 
   // AI States
@@ -131,7 +137,16 @@ const SocialFeed: React.FC<SocialFeedProps> = ({ onBack, onProfile, onStartLive,
   }, []);
 
   useEffect(() => {
-    const local = JSON.parse(localStorage.getItem('muse_local_posts') || '[]');
+    let local: SocialPost[] = [];
+    try {
+      const saved = localStorage.getItem('muse_local_posts');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        local = Array.isArray(parsed) ? parsed : [];
+      }
+    } catch (e) {
+      console.warn("Local posts load failed");
+    }
     setPosts(local);
 
     if (!db) {
@@ -187,8 +202,12 @@ const SocialFeed: React.FC<SocialFeedProps> = ({ onBack, onProfile, onStartLive,
         setPosts(prev => prev.map(p => p.id === editingPostId ? { ...p, ...updatedPostData } : p));
 
         // Update LocalStorage
-        const local = JSON.parse(localStorage.getItem('muse_local_posts') || '[]');
-        const updatedLocal = local.map((p: any) => p.id === editingPostId ? { ...p, ...updatedPostData } : p);
+        let local: any[] = [];
+        try {
+          const saved = localStorage.getItem('muse_local_posts');
+          if (saved) local = JSON.parse(saved);
+        } catch(e) {}
+        const updatedLocal = (Array.isArray(local) ? local : []).map((p: any) => p.id === editingPostId ? { ...p, ...updatedPostData } : p);
         localStorage.setItem('muse_local_posts', JSON.stringify(updatedLocal));
 
         // Update Cloud if online
@@ -212,8 +231,13 @@ const SocialFeed: React.FC<SocialFeedProps> = ({ onBack, onProfile, onStartLive,
           likes: 0
         };
 
-        const local = JSON.parse(localStorage.getItem('muse_local_posts') || '[]');
-        localStorage.setItem('muse_local_posts', JSON.stringify([newPost, ...local].slice(0, 50)));
+        let local: any[] = [];
+        try {
+          const saved = localStorage.getItem('muse_local_posts');
+          if (saved) local = JSON.parse(saved);
+        } catch(e) {}
+        const safeLocal = Array.isArray(local) ? local : [];
+        localStorage.setItem('muse_local_posts', JSON.stringify([newPost, ...safeLocal].slice(0, 50)));
         setPosts(prev => [newPost, ...prev]);
 
         if (db && connectionStatus === 'online') {

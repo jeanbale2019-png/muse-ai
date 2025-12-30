@@ -1,6 +1,8 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import VisualLab from './components/VisualLab';
 import CreationSuite from './components/CreationSuite';
+import TimelapseForge from './components/TimelapseForge';
 import LiveVoiceChat from './components/LiveVoiceChat';
 import LiveRoom from './components/LiveRoom';
 import IntelligenceHub from './components/IntelligenceHub';
@@ -13,13 +15,12 @@ import ChatBot from './components/ChatBot';
 import AccessControl from './components/AccessControl';
 import LanguageSelector from './components/LanguageSelector';
 import { Tab, Language, SUPPORTED_LANGUAGES, UserAccount } from './types';
-import { generateTTS, playTTS } from './services/geminiService';
 import { i18n } from './services/i18nService';
 import { initializeApp } from 'firebase/app';
 import { getFirestore, doc, onSnapshot, updateDoc } from 'firebase/firestore';
 
 const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<Tab>('social');
+  const [activeTab, setActiveTab] = useState<Tab>('timelapse');
   const [language, setLanguage] = useState<Language>('fr-FR');
   const [isI18nReady, setIsI18nReady] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -27,14 +28,12 @@ const App: React.FC = () => {
   const [sidebarExpanded, setSidebarExpanded] = useState(true);
   const [targetProfileId, setTargetProfileId] = useState<string | null>(null);
 
-  // SaaS States
   const [user, setUser] = useState<UserAccount | null>(() => {
     const saved = localStorage.getItem('muse_user');
     return saved ? JSON.parse(saved) : null;
   });
   const [isAccessLocked, setIsAccessLocked] = useState(false);
 
-  // Initialize Firestore
   const db = useMemo(() => {
     try {
       const firebaseConfig = { projectId: "muse-ai-77821724" }; 
@@ -46,7 +45,6 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // Sync Language and i18n
   useEffect(() => {
     const sync = async () => {
       setIsI18nReady(false);
@@ -56,7 +54,6 @@ const App: React.FC = () => {
     sync();
   }, [language]);
 
-  // Handle language change and persist to Firestore
   const handleLanguageChange = async (newLang: Language) => {
     setLanguage(newLang);
     if (user && db) {
@@ -77,29 +74,20 @@ const App: React.FC = () => {
     localStorage.setItem('muse_user', JSON.stringify(updatedUser));
   };
 
-  // REAL-TIME SUBSCRIPTION & PREFERENCES MONITORING
   useEffect(() => {
     if (!user || !db) return;
-
     const userRef = doc(db, "users", user.id);
     const unsub = onSnapshot(userRef, (doc) => {
       if (doc.exists()) {
         const newData = doc.data() as UserAccount;
-        
-        // Auto-sync language if changed remotely or at login
-        if (newData.language && newData.language !== language) {
-          setLanguage(newData.language);
-        }
-
+        if (newData.language && newData.language !== language) setLanguage(newData.language);
         setUser(newData);
         localStorage.setItem('muse_user', JSON.stringify(newData));
       }
     });
-
     return () => unsub();
   }, [db, user?.id]);
 
-  // LOGIQUE DU TIMER PERSISTANT
   useEffect(() => {
     if (user) return; 
     const TRIAL_LIMIT = 120000; 
@@ -183,8 +171,8 @@ const App: React.FC = () => {
         {activeTab !== 'live' && (
           <header className="sticky top-0 z-40 bg-[#09090b]/80 backdrop-blur-xl border-b border-white/5 h-16 md:h-20 flex items-center justify-between px-6">
             <div className="flex items-center space-x-3">
-              <span className="hidden md:inline font-serif font-black text-xl tracking-tighter">
-                SOCIAL <span className="text-[#3B82F6] italic">MUSE</span>
+              <span className="hidden md:inline font-serif font-black text-xl tracking-tighter uppercase leading-none">
+                Build <span className="text-[#3B82F6] italic">To</span> Timelapse
               </span>
               {user && (
                  <span className={`px-2 py-0.5 rounded text-[7px] font-black uppercase tracking-widest ${user.tier === 'premium' ? 'bg-indigo-500 text-white' : user.tier === 'business' ? 'bg-amber-500 text-black' : 'bg-white/10 text-zinc-500'}`}>
@@ -198,17 +186,6 @@ const App: React.FC = () => {
                 currentLanguage={language} 
                 onLanguageChange={handleLanguageChange} 
               />
-              
-              {!user && (
-                <button 
-                  onClick={() => setIsAccessLocked(true)}
-                  className="hidden sm:flex px-6 py-2.5 bg-gradient-to-r from-indigo-600 to-blue-600 hover:from-indigo-500 hover:to-blue-500 text-white rounded-full font-black uppercase text-[10px] tracking-widest shadow-lg shadow-indigo-600/30 transition-all transform hover:scale-105 active:scale-95 items-center space-x-2 border border-white/10"
-                >
-                  <span>Get Started</span>
-                  <i className="fa-solid fa-arrow-right"></i>
-                </button>
-              )}
-
               <button 
                 onClick={() => handleTabChange('profile')}
                 className="w-10 h-10 rounded-full border border-indigo-500/30 overflow-hidden ring-2 ring-indigo-500/20 hover:ring-indigo-500/50 transition-all shadow-lg active:scale-90"
@@ -220,6 +197,7 @@ const App: React.FC = () => {
         )}
 
         <div className={`w-full h-full ${activeTab === 'live' ? '' : 'max-w-7xl mx-auto p-4 md:p-8'}`}>
+          {activeTab === 'timelapse' && <TimelapseForge language={language} user={user} />}
           {activeTab === 'writer' && <VisualLab language={language} user={user} db={db} />}
           {activeTab === 'studio' && <CreationSuite language={language} user={user} />}
           {activeTab === 'lab' && <LiveVoiceChat language={language} user={user} db={db} />}
@@ -255,9 +233,9 @@ const App: React.FC = () => {
           {activeTab === 'settings' && (
             <div className="py-20 text-center space-y-4">
                <i className="fa-solid fa-gears text-5xl opacity-20"></i>
-               <h2 className="text-xl font-black uppercase tracking-widest">{i18n.t('nav_settings')}</h2>
+               <h2 className="text-xl font-black uppercase tracking-widest">Settings</h2>
                <div className="max-w-md mx-auto p-8 glass rounded-3xl mt-8">
-                  <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-4">Préférence Linguistique</label>
+                  <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-4">Language Preference</label>
                   <LanguageSelector currentLanguage={language} onLanguageChange={handleLanguageChange} />
                </div>
             </div>

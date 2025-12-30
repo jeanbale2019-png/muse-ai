@@ -32,6 +32,7 @@ export const registerUser = async (email: string, pass: string, username: string
   const userCredential = await createUserWithEmailAndPassword(auth, email, pass);
   const firebaseUser = userCredential.user;
 
+  // Fixed: Added missing credits property
   const userData: UserAccount = {
     id: firebaseUser.uid,
     username: username,
@@ -40,6 +41,7 @@ export const registerUser = async (email: string, pass: string, username: string
     interests: [],
     eloquenceLevel: 1,
     exp: 0,
+    credits: tier === 'free' ? 100 : tier === 'premium' ? 1000 : 5000,
     language: 'fr-FR'
   };
 
@@ -60,6 +62,7 @@ export const loginUser = async (email: string, pass: string): Promise<UserAccoun
   if (docSnap.exists()) {
     return docSnap.data() as UserAccount;
   } else {
+    // Fixed: Added missing credits property
     const userData: UserAccount = {
       id: userCredential.user.uid,
       username: userCredential.user.displayName || "User_" + userCredential.user.uid.substring(0, 5),
@@ -68,6 +71,7 @@ export const loginUser = async (email: string, pass: string): Promise<UserAccoun
       interests: [],
       eloquenceLevel: 1,
       exp: 0,
+      credits: 100,
       language: 'fr-FR'
     };
     await setDoc(doc(db, "users", userCredential.user.uid), userData);
@@ -86,6 +90,7 @@ export const loginWithGoogle = async (): Promise<UserAccount> => {
   if (docSnap.exists()) {
     return docSnap.data() as UserAccount;
   } else {
+    // Fixed: Added missing credits property
     const userData: UserAccount = {
       id: firebaseUser.uid,
       username: firebaseUser.displayName || "Muse_" + firebaseUser.uid.substring(0, 5),
@@ -94,6 +99,7 @@ export const loginWithGoogle = async (): Promise<UserAccount> => {
       interests: [],
       eloquenceLevel: 1,
       exp: 0,
+      credits: 100,
       language: 'fr-FR'
     };
 
