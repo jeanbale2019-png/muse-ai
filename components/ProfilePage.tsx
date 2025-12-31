@@ -22,9 +22,10 @@ interface ProfilePageProps {
   language: string;
   currentAppUser: UserAccount | null;
   onUserUpdate?: (user: UserAccount) => void;
+  onLogout?: () => void;
 }
 
-const ProfilePage: React.FC<ProfilePageProps> = ({ targetUserId, onBack, language, currentAppUser, onUserUpdate }) => {
+const ProfilePage: React.FC<ProfilePageProps> = ({ targetUserId, onBack, language, currentAppUser, onUserUpdate, onLogout }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
@@ -224,7 +225,10 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ targetUserId, onBack, languag
           </div>
         </div>
         {isOwnProfile && (
-          <button className="text-rose-500 font-bold text-[10px] uppercase tracking-widest hover:text-rose-600 transition-colors bg-rose-50 px-3 py-1.5 rounded-lg border border-rose-100">
+          <button 
+            onClick={onLogout}
+            className="text-rose-500 font-bold text-[10px] uppercase tracking-widest hover:text-rose-600 transition-colors bg-rose-50 px-3 py-1.5 rounded-lg border border-rose-100"
+          >
             Déconnexion
           </button>
         )}

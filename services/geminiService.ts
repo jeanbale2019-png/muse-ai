@@ -84,7 +84,8 @@ export const orchestrateStoryboard = async (
     // Use gemini-3-pro-preview for complex reasoning tasks
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-preview',
-      contents: [{ text: prompt }],
+      // Fixed: Passing prompt as a string directly.
+      contents: prompt,
       config: {
         responseMimeType: "application/json",
         responseSchema: {
@@ -126,7 +127,8 @@ export const generateSocialPack = async (project: TimelapseProject): Promise<Soc
     // Use gemini-3-pro-preview for complex reasoning tasks
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-preview',
-      contents: [{ text: prompt }],
+      // Fixed: Passing prompt as a string directly.
+      contents: prompt,
       config: {
         responseMimeType: "application/json",
         responseSchema: {

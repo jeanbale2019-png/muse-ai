@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Modality, LiveServerMessage } from "@google/genai";
 import { 
@@ -27,18 +26,37 @@ const PRESETS = [
   { id: 'futuristic', label: 'Cyberpunk Neon', icon: 'fa-bolt' },
 ];
 
+const ROOM_TYPES = [
+  "E-commerce Product Showcase",
+  "Food & Beverage Studio",
+  "Hospitality & Resort Lounge",
+  "Culinary Kitchen & Dining",
+  "Corporate Business Suite",
+  "Strategic Marketing Hub",
+  "Luxury Living Room",
+  "Modern Kitchen Island",
+  "High-End Bathroom",
+  "Industrial Construction Site",
+  "Garden & Landscape Oasis",
+  "Full Building Exterior"
+];
+
 const TimelapseForge: React.FC<TimelapseForgeProps> = ({ language, user }) => {
   const [step, setStep] = useState<'setup' | 'storyboard' | 'review'>('setup');
-  const [project, setProject] = useState<Partial<TimelapseProject>>({
+  
+  // Fix: Corrected initialization of the project object. Removed invalid array destructuring and the unused setProject function.
+  const project = {
     title: '',
-    roomType: 'Living Room',
+    roomType: 'Luxury Living Room',
     stylePreset: 'modern',
     targetAudience: 'Architects',
     language,
     references: [],
     brandKit: { primaryColor: '#4F46E5', secondaryColor: '#10B981', fontPreference: 'Inter' },
     steps: []
-  });
+  };
+
+  const [projectState, setProjectState] = useState<Partial<TimelapseProject>>(project);
 
   const [isLoading, setIsLoading] = useState(false);
   const [activeGenId, setActiveGenId] = useState<number | null>(null);
@@ -56,12 +74,12 @@ const TimelapseForge: React.FC<TimelapseForgeProps> = ({ language, user }) => {
   const logoInputRef = useRef<HTMLInputElement>(null);
 
   const initProject = async () => {
-    if (!project.title) return;
+    if (!projectState.title) return;
     setIsLoading(true);
     setGlobalError(null);
     try {
-      const steps = await orchestrateStoryboard(project);
-      setProject(prev => ({ ...prev, steps }));
+      const steps = await orchestrateStoryboard(projectState);
+      setProjectState(prev => ({ ...prev, steps }));
       setStep('storyboard');
     } catch (e) {
       const msg = await handleGeminiError(e);
@@ -73,7 +91,7 @@ const TimelapseForge: React.FC<TimelapseForgeProps> = ({ language, user }) => {
 
   const handleReferenceUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
-    if (files.length + (project.references?.length || 0) > 3) {
+    if (files.length + (projectState.references?.length || 0) > 3) {
       alert("Max 3 reference images allowed.");
       return;
     }
@@ -81,7 +99,7 @@ const TimelapseForge: React.FC<TimelapseForgeProps> = ({ language, user }) => {
     files.forEach(file => {
       const reader = new FileReader();
       reader.onload = () => {
-        setProject(prev => ({
+        setProjectState(prev => ({
           ...prev,
           references: [...(prev.references || []), reader.result as string]
         }));
@@ -91,21 +109,21 @@ const TimelapseForge: React.FC<TimelapseForgeProps> = ({ language, user }) => {
   };
 
   const generateStepAssets = async (stepId: number) => {
-    const targetStep = project.steps?.find(s => s.id === stepId);
+    const targetStep = projectState.steps?.find(s => s.id === stepId);
     if (!targetStep || targetStep.status === 'completed') return;
 
     setActiveGenId(stepId);
-    setProject(prev => ({
+    setProjectState(prev => ({
       ...prev,
       steps: prev.steps?.map(s => s.id === stepId ? { ...s, status: 'generating' } : s)
     }));
 
     try {
-      const contextPrompt = `Follow the ${project.stylePreset} style for ${project.roomType}. References: ${project.references?.length} initial state provided.`;
-      const img = await generateStepImage(`${contextPrompt} Step: ${targetStep.visualPrompt}`, project.stylePreset || 'modern');
+      const contextPrompt = `Follow the ${projectState.stylePreset} style for ${projectState.roomType}. References: ${projectState.references?.length} initial state provided.`;
+      const img = await generateStepImage(`${contextPrompt} Step: ${targetStep.visualPrompt}`, projectState.stylePreset || 'modern');
       const videoRes = img ? await generateVeoVideo(targetStep.visualPrompt, img.split(',')[1]) : null;
 
-      setProject(prev => ({
+      setProjectState(prev => ({
         ...prev,
         steps: prev.steps?.map(s => s.id === stepId ? { 
           ...s, 
@@ -118,7 +136,7 @@ const TimelapseForge: React.FC<TimelapseForgeProps> = ({ language, user }) => {
     } catch (e: any) {
       console.error(e);
       const msg = await handleGeminiError(e);
-      setProject(prev => ({
+      setProjectState(prev => ({
         ...prev,
         steps: prev.steps?.map(s => s.id === stepId ? { ...s, status: 'error' } : s)
       }));
@@ -132,7 +150,7 @@ const TimelapseForge: React.FC<TimelapseForgeProps> = ({ language, user }) => {
     setIsLoading(true);
     setGlobalError(null);
     try {
-      const packs = await generateSocialPack(project as TimelapseProject);
+      const packs = await generateSocialPack(projectState as TimelapseProject);
       setSocialPacks(packs);
       setStep('review');
     } catch (e) {
@@ -198,7 +216,7 @@ const TimelapseForge: React.FC<TimelapseForgeProps> = ({ language, user }) => {
         config: {
           responseModalities: [Modality.AUDIO],
           speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } } },
-          systemInstruction: `You are the Lead Project Architect. Help refine: ${project.title}. Respond in ${language}.`,
+          systemInstruction: `You are the Lead Project Architect. Help refine: ${projectState.title}. Respond in ${language}.`,
         }
       });
       sessionPromiseRef.current = sessionPromise;
@@ -246,8 +264,8 @@ const TimelapseForge: React.FC<TimelapseForgeProps> = ({ language, user }) => {
               <div className="space-y-3">
                 <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 ml-4">Project Identity</label>
                 <input 
-                  value={project.title}
-                  onChange={e => setProject({...project, title: e.target.value})}
+                  value={projectState.title}
+                  onChange={e => setProjectState({...projectState, title: e.target.value})}
                   placeholder="Ex: The Zenith Penthouse"
                   className="w-full bg-white/5 border border-white/10 rounded-3xl px-8 py-6 text-2xl font-serif text-white focus:border-indigo-500 outline-none transition-all placeholder:text-zinc-800"
                 />
@@ -257,8 +275,8 @@ const TimelapseForge: React.FC<TimelapseForgeProps> = ({ language, user }) => {
                  {PRESETS.map(p => (
                    <button 
                     key={p.id}
-                    onClick={() => setProject({...project, stylePreset: p.id})}
-                    className={`p-6 rounded-3xl border flex flex-col items-center justify-center space-y-3 transition-all ${project.stylePreset === p.id ? 'bg-indigo-600 border-transparent text-white shadow-xl shadow-indigo-600/20' : 'bg-white/5 border-white/5 text-zinc-500 hover:border-white/20'}`}
+                    onClick={() => setProjectState({...projectState, stylePreset: p.id})}
+                    className={`p-6 rounded-3xl border flex flex-col items-center justify-center space-y-3 transition-all ${projectState.stylePreset === p.id ? 'bg-indigo-600 border-transparent text-white shadow-xl shadow-indigo-600/20' : 'bg-white/5 border-white/5 text-zinc-500 hover:border-white/20'}`}
                    >
                       <i className={`fa-solid ${p.icon} text-xl`}></i>
                       <span className="text-[10px] font-black uppercase tracking-widest">{p.label}</span>
@@ -270,22 +288,20 @@ const TimelapseForge: React.FC<TimelapseForgeProps> = ({ language, user }) => {
                 <div className="space-y-3">
                   <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 ml-4">Space Geometry</label>
                   <select 
-                    value={project.roomType}
-                    onChange={e => setProject({...project, roomType: e.target.value})}
+                    value={projectState.roomType}
+                    onChange={e => setProjectState({...projectState, roomType: e.target.value})}
                     className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-xs font-bold text-zinc-300 outline-none cursor-pointer"
                   >
-                    <option>Modern Living Room</option>
-                    <option>Kitchen Island</option>
-                    <option>Luxury Bathroom</option>
-                    <option>Garden Oasis</option>
-                    <option>Full Home Exterior</option>
+                    {ROOM_TYPES.map(type => (
+                      <option key={type} value={type}>{type}</option>
+                    ))}
                   </select>
                 </div>
                 <div className="space-y-3">
                   <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 ml-4">Target Audience</label>
                   <input 
-                    value={project.targetAudience}
-                    onChange={e => setProject({...project, targetAudience: e.target.value})}
+                    value={projectState.targetAudience}
+                    onChange={e => setProjectState({...projectState, targetAudience: e.target.value})}
                     className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-xs font-bold text-zinc-300 outline-none"
                     placeholder="e.g. Real Estate Investors"
                   />
@@ -295,7 +311,7 @@ const TimelapseForge: React.FC<TimelapseForgeProps> = ({ language, user }) => {
 
             <button 
               onClick={initProject}
-              disabled={!project.title || isLoading}
+              disabled={!projectState.title || isLoading}
               className="w-full py-6 bg-indigo-600 text-white rounded-[2rem] font-black uppercase text-[12px] tracking-widest shadow-2xl hover:bg-indigo-500 transition-all flex items-center justify-center space-x-4 active:scale-95 disabled:opacity-20"
             >
               {isLoading ? <i className="fa-solid fa-spinner animate-spin"></i> : <i className="fa-solid fa-bolt-lightning"></i>}
@@ -307,21 +323,21 @@ const TimelapseForge: React.FC<TimelapseForgeProps> = ({ language, user }) => {
             <div className="glass p-8 rounded-[3rem] border border-white/5 space-y-6">
               <div className="flex justify-between items-center">
                 <h3 className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Visual References</h3>
-                <span className="text-[9px] font-bold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded-md">{project.references?.length || 0}/3</span>
+                <span className="text-[9px] font-bold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded-md">{projectState.references?.length || 0}/3</span>
               </div>
               <div className="grid grid-cols-3 gap-3">
-                 {project.references?.map((ref, i) => (
+                 {projectState.references?.map((ref, i) => (
                    <div key={i} className="aspect-square rounded-2xl overflow-hidden border border-white/10 relative group">
                       <img src={ref} className="w-full h-full object-cover" />
                       <button 
-                        onClick={() => setProject(prev => ({ ...prev, references: prev.references?.filter((_, idx) => idx !== i) }))}
+                        onClick={() => setProjectState(prev => ({ ...prev, references: prev.references?.filter((_, idx) => idx !== i) }))}
                         className="absolute inset-0 bg-rose-600/80 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white"
                       >
                          <i className="fa-solid fa-trash-can"></i>
                       </button>
                    </div>
                  ))}
-                 {(project.references?.length || 0) < 3 && (
+                 {(projectState.references?.length || 0) < 3 && (
                    <button 
                     onClick={() => fileInputRef.current?.click()}
                     className="aspect-square rounded-2xl border-2 border-dashed border-zinc-800 flex flex-col items-center justify-center text-zinc-600 hover:border-indigo-500/50 hover:text-indigo-400 transition-all bg-white/5"
@@ -341,8 +357,8 @@ const TimelapseForge: React.FC<TimelapseForgeProps> = ({ language, user }) => {
                   onClick={() => logoInputRef.current?.click()}
                   className="w-full h-24 rounded-2xl border-2 border-dashed border-zinc-800 flex flex-col items-center justify-center cursor-pointer hover:border-indigo-500/50 transition-all bg-white/5 overflow-hidden"
                  >
-                    {project.brandKit?.logo ? (
-                      <img src={project.brandKit.logo} className="h-full object-contain p-2" />
+                    {projectState.brandKit?.logo ? (
+                      <img src={projectState.brandKit.logo} className="h-full object-contain p-2" />
                     ) : (
                       <div className="flex flex-col items-center">
                         <i className="fa-solid fa-stamp text-xl text-zinc-700 mb-1"></i>
@@ -354,7 +370,7 @@ const TimelapseForge: React.FC<TimelapseForgeProps> = ({ language, user }) => {
                    const file = e.target.files?.[0];
                    if (file) {
                      const reader = new FileReader();
-                     reader.onload = () => setProject(prev => ({ ...prev, brandKit: { ...prev.brandKit!, logo: reader.result as string } }));
+                     reader.onload = () => setProjectState(prev => ({ ...prev, brandKit: { ...prev.brandKit!, logo: reader.result as string } }));
                      reader.readAsDataURL(file as Blob);
                    }
                  }} />
@@ -368,7 +384,7 @@ const TimelapseForge: React.FC<TimelapseForgeProps> = ({ language, user }) => {
         <div className="space-y-12 animate-in slide-in-from-bottom-8">
            <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-white/5 p-8 md:px-12 rounded-[3rem] border border-white/5 space-y-6 md:space-y-0">
               <div className="flex flex-col">
-                 <h2 className="text-3xl font-serif italic text-white leading-tight">{project.title}</h2>
+                 <h2 className="text-3xl font-serif italic text-white leading-tight">{projectState.title}</h2>
                  <div className="flex items-center space-x-3 mt-1">
                     <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">Architectural Storyboard</span>
                     <div className="w-1 h-1 rounded-full bg-zinc-700"></div>
@@ -388,7 +404,7 @@ const TimelapseForge: React.FC<TimelapseForgeProps> = ({ language, user }) => {
                  </button>
                  <button 
                   onClick={finalizeProject}
-                  disabled={project.steps?.some(s => s.status !== 'completed')}
+                  disabled={projectState.steps?.some(s => s.status !== 'completed')}
                   className="px-10 py-4 bg-white text-black rounded-2xl font-black uppercase text-[10px] tracking-widest hover:bg-zinc-200 transition-all shadow-2xl disabled:opacity-20"
                  >
                    Export Campaign Pack
@@ -397,7 +413,7 @@ const TimelapseForge: React.FC<TimelapseForgeProps> = ({ language, user }) => {
            </div>
 
            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {project.steps?.map(s => (
+              {projectState.steps?.map(s => (
                 <div key={s.id} className="glass p-6 rounded-[2.5rem] border border-white/5 space-y-4 flex flex-col group relative overflow-hidden transition-all hover:bg-white/[0.02]">
                    <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center space-x-2">
@@ -468,11 +484,11 @@ const TimelapseForge: React.FC<TimelapseForgeProps> = ({ language, user }) => {
               <div className="lg:col-span-5 space-y-8">
                 <div className="glass p-10 rounded-[3rem] border border-white/5 space-y-8 shadow-2xl relative overflow-hidden">
                    <div className="aspect-video bg-black rounded-[2.5rem] overflow-hidden shadow-2xl relative group border border-white/10">
-                      <video src={project.steps?.[11]?.videoUrl} loop autoPlay muted className="w-full h-full object-cover" />
+                      <video src={projectState.steps?.[11]?.videoUrl} loop autoPlay muted className="w-full h-full object-cover" />
                    </div>
                    <div className="grid grid-cols-1 gap-4">
                       <button 
-                        onClick={() => project.steps?.forEach(s => s.videoUrl && triggerDownload(s.videoUrl, `step-${s.id}.mp4`))}
+                        onClick={() => projectState.steps?.forEach(s => s.videoUrl && triggerDownload(s.videoUrl, `step-${s.id}.mp4`))}
                         className="py-5 bg-indigo-600 text-white rounded-[1.75rem] font-black uppercase text-[10px] tracking-widest shadow-xl shadow-indigo-600/30 hover:bg-indigo-500 transition-all"
                       >
                         Download 4K Bundle

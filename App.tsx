@@ -18,6 +18,7 @@ import { Tab, Language, SUPPORTED_LANGUAGES, UserAccount } from './types';
 import { i18n } from './services/i18nService';
 import { initializeApp } from 'firebase/app';
 import { getFirestore, doc, onSnapshot, updateDoc } from 'firebase/firestore';
+import { logoutUser } from './services/authService';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<Tab>('timelapse');
@@ -72,6 +73,19 @@ const App: React.FC = () => {
   const handleUpdateUser = (updatedUser: UserAccount) => {
     setUser(updatedUser);
     localStorage.setItem('muse_user', JSON.stringify(updatedUser));
+  };
+
+  const handleLogout = async () => {
+    try {
+      await logoutUser();
+      setUser(null);
+      localStorage.removeItem('muse_user');
+      setActiveTab('timelapse');
+      setTargetProfileId(null);
+      setIsAccessLocked(true);
+    } catch (e) {
+      console.error("Logout failed", e);
+    }
   };
 
   useEffect(() => {
@@ -166,7 +180,7 @@ const App: React.FC = () => {
         </div>
       )}
 
-      <main className={`flex-1 transition-all duration-500 pb-24 md:pb-0 landscape:pb-0 ${activeTab !== 'live' && sidebarExpanded ? 'md:ml-64' : activeTab !== 'live' ? 'md:ml-20' : 'ml-0'}`}>
+      <main className={`flex-1 transition-all duration-500 pb-24 md:pb-0 landscape:pb-0 ${activeTab !== 'live' && sidebarExpanded ? 'md:ml-64' : activeTab !== 'live' ? 'md:ml-20' : 'md:ml-0'}`}>
         
         {activeTab !== 'live' && (
           <header className="sticky top-0 z-40 bg-[#09090b]/80 backdrop-blur-xl border-b border-white/5 h-16 md:h-20 flex items-center justify-between px-6">
@@ -228,6 +242,7 @@ const App: React.FC = () => {
               onBack={() => setActiveTab('social')} 
               currentAppUser={user} 
               onUserUpdate={handleUpdateUser}
+              onLogout={handleLogout}
             />
           )}
           {activeTab === 'settings' && (

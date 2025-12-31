@@ -19,7 +19,8 @@ interface VisualLabProps {
 }
 
 const VisualLab: React.FC<VisualLabProps> = ({ language }) => {
-  const [image, setImage] = useState<string | null>(null);
+  const [sourceFile, setSourceFile] = useState<{ url: string; type: 'image' | 'video' } | null>(null);
+  const [analysisFrame, setAnalysisFrame] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isReading, setIsReading] = useState(false);
   const [story, setStory] = useState<StoryData | null>(null);
@@ -38,46 +39,87 @@ const VisualLab: React.FC<VisualLabProps> = ({ language }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const videoContainerRef = useRef<HTMLDivElement>(null);
 
+  // Extract a frame from a video file to use for Gemini analysis
+  const captureVideoFrame = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const video = document.createElement('video');
+      video.preload = 'metadata';
+      video.src = URL.createObjectURL(file);
+      video.muted = true;
+      video.playsInline = true;
+
+      video.onloadedmetadata = () => {
+        video.currentTime = 0.5; // Seek a bit to avoid black start frames
+      };
+
+      video.onseeked = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d');
+        ctx?.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+        URL.revokeObjectURL(video.src);
+        resolve(dataUrl.split(',')[1]);
+      };
+
+      video.onerror = (e) => reject(e);
+    });
+  };
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setError(null);
-    const reader = new FileReader();
-    reader.onloadend = async () => {
-      const base64 = (reader.result as string).split(',')[1];
-      setImage(reader.result as string);
-      setIsAnalyzing(true);
-      setLastAudioBase64(null);
-      setStory(null);
-      setVideoUrl(null);
-      
-      try {
-        const result = await analyzeImageAndGhostwrite(base64, file.type, language);
-        setStory(result);
-      } catch (err: any) {
-        console.error(err);
-        setError("Failed to analyze image. Ensure your API key is valid.");
-      } finally {
-        setIsAnalyzing(false);
+    const isVideo = file.type.startsWith('video/');
+    const fileUrl = URL.createObjectURL(file);
+    
+    setSourceFile({ url: fileUrl, type: isVideo ? 'video' : 'image' });
+    setIsAnalyzing(true);
+    setLastAudioBase64(null);
+    setStory(null);
+    setVideoUrl(null);
+
+    try {
+      let base64ForAnalysis = '';
+      let mimeTypeForAnalysis = 'image/jpeg';
+
+      if (isVideo) {
+        base64ForAnalysis = await captureVideoFrame(file);
+      } else {
+        const reader = new FileReader();
+        base64ForAnalysis = await new Promise((resolve) => {
+          reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
+          reader.readAsDataURL(file);
+        });
+        mimeTypeForAnalysis = file.type;
       }
-    };
-    reader.readAsDataURL(file);
+
+      setAnalysisFrame(base64ForAnalysis);
+      const result = await analyzeImageAndGhostwrite(base64ForAnalysis, mimeTypeForAnalysis, language as any);
+      setStory(result);
+    } catch (err: any) {
+      console.error(err);
+      setError("Analysis failed. Please try another file or check your connection.");
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
   const generateCinematicPreview = async () => {
-    if (!image || !story) return;
+    if (!analysisFrame || !story) return;
     setIsGeneratingVideo(true);
     setError(null);
     try {
       const prompt = `Cinematic visualization: ${story.openingParagraph}. Mood: ${story.mood}. Sensory details: ${story.sensoryDetails.join(', ')}.`;
-      const res = await generateVeoVideo(prompt, image.split(',')[1], 'image/jpeg', '16:9', '720p');
+      const res = await generateVeoVideo(prompt, analysisFrame, 'image/jpeg', '16:9', '720p');
       if (res) {
         setVideoUrl(res.url);
       }
     } catch (err: any) {
       handleGeminiError(err);
-      setError("Failed to generate cinematic preview.");
+      setError("Cinematic generation failed. Quota might be reached.");
     } finally {
       setIsGeneratingVideo(false);
     }
@@ -95,7 +137,7 @@ const VisualLab: React.FC<VisualLabProps> = ({ language }) => {
       }
     } catch (err: any) {
       console.error(err);
-      setError("Audio generation failed.");
+      setError("Audio synthesis failed.");
     } finally {
       setIsReading(false);
     }
@@ -131,10 +173,10 @@ const VisualLab: React.FC<VisualLabProps> = ({ language }) => {
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-12 animate-in fade-in duration-700">
+    <div className="max-w-4xl mx-auto space-y-12 animate-in fade-in duration-700 pb-20">
       <div className="text-center space-y-4">
         <h1 className="text-5xl font-serif font-light tracking-tight text-white">Muse <span className="text-blue-400">&</span> Vision</h1>
-        <p className="text-zinc-400 text-lg">Upload an image to spark a world-building opening.</p>
+        <p className="text-zinc-400 text-lg">Projetez votre vision (image ou vidéo) pour éveiller le Ghostwriter.</p>
       </div>
 
       {error && (
@@ -151,16 +193,23 @@ const VisualLab: React.FC<VisualLabProps> = ({ language }) => {
         <div className="space-y-6">
           <div 
             onClick={() => fileInputRef.current?.click()}
-            className="aspect-square w-full glass rounded-[3rem] flex flex-col items-center justify-center cursor-pointer overflow-hidden border-dashed border-2 border-zinc-800 hover:border-blue-500 transition-all group shadow-2xl"
+            className="aspect-square w-full glass rounded-[3rem] flex flex-col items-center justify-center cursor-pointer overflow-hidden border-dashed border-2 border-zinc-800 hover:border-blue-500 transition-all group shadow-2xl bg-black/20"
           >
-            {image ? (
-              <img src={image} className="w-full h-full object-cover" alt="Uploaded scene" />
+            {sourceFile ? (
+              sourceFile.type === 'video' ? (
+                <video src={sourceFile.url} className="w-full h-full object-cover" autoPlay loop muted playsInline />
+              ) : (
+                <img src={sourceFile.url} className="w-full h-full object-cover" alt="Uploaded scene" />
+              )
             ) : (
-              <div className="flex flex-col items-center space-y-3 group-hover:scale-110 transition-transform">
+              <div className="flex flex-col items-center space-y-3 group-hover:scale-110 transition-transform text-center p-8">
                 <div className="p-6 bg-zinc-900 rounded-full border border-white/5">
-                  <i className="fa-solid fa-plus text-3xl text-zinc-600 group-hover:text-blue-400 transition-colors"></i>
+                  <i className="fa-solid fa-cloud-arrow-up text-3xl text-zinc-600 group-hover:text-blue-400 transition-colors"></i>
                 </div>
-                <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Initial Vision</span>
+                <div className="space-y-1">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500 block">Vision Source</span>
+                  <span className="text-[8px] font-bold text-zinc-700 uppercase tracking-tighter">Image ou Vidéo supportée</span>
+                </div>
               </div>
             )}
           </div>
@@ -168,14 +217,14 @@ const VisualLab: React.FC<VisualLabProps> = ({ language }) => {
             type="file" 
             ref={fileInputRef} 
             className="hidden" 
-            accept="image/*" 
+            accept="image/*,video/*" 
             onChange={handleFileChange} 
           />
 
           <div className="glass p-6 rounded-[2.5rem] space-y-4">
             <div className="flex items-center justify-between">
-              <label className="text-[9px] font-black uppercase tracking-[0.3em] text-zinc-500">Narrator</label>
-              <span className="text-[8px] font-bold text-blue-400 uppercase bg-blue-500/10 px-2 py-0.5 rounded-full">Pro Voice</span>
+              <label className="text-[9px] font-black uppercase tracking-[0.3em] text-zinc-500">Narrateur</label>
+              <span className="text-[8px] font-bold text-blue-400 uppercase bg-blue-500/10 px-2 py-0.5 rounded-full">Neural Synth</span>
             </div>
             <div className="relative">
               <select 
@@ -199,8 +248,8 @@ const VisualLab: React.FC<VisualLabProps> = ({ language }) => {
             <div className="glass h-full min-h-[450px] rounded-[3.5rem] flex flex-col items-center justify-center space-y-6 p-12">
               <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
               <div className="text-center space-y-2">
-                <p className="text-zinc-400 font-mono text-[10px] uppercase tracking-[0.5em] animate-pulse">Scanning Visual Corpus...</p>
-                <p className="text-[9px] text-zinc-600 font-black uppercase">Establishing Neural Context</p>
+                <p className="text-zinc-400 font-mono text-[10px] uppercase tracking-[0.5em] animate-pulse">Extraction de l'Essence...</p>
+                <p className="text-[9px] text-zinc-600 font-black uppercase">Calcul des vecteurs narratifs</p>
               </div>
             </div>
           ) : story ? (
@@ -209,7 +258,7 @@ const VisualLab: React.FC<VisualLabProps> = ({ language }) => {
               
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-black uppercase tracking-[0.4em] text-blue-400">Chronicle Genesis</span>
+                  <span className="text-[10px] font-black uppercase tracking-[0.4em] text-blue-400">Genèse du Script</span>
                   <div className="flex space-x-2">
                     <button 
                       onClick={handleReadAloud} 
@@ -232,61 +281,57 @@ const VisualLab: React.FC<VisualLabProps> = ({ language }) => {
 
               <div className="grid grid-cols-2 gap-8 pt-8 border-t border-white/5">
                 <div className="space-y-2">
-                  <span className="text-[9px] font-black uppercase tracking-widest text-zinc-600">Dominant Mood</span>
+                  <span className="text-[9px] font-black uppercase tracking-widest text-zinc-600">Mood Dominant</span>
                   <p className="text-sm font-medium text-zinc-300">{story.mood}</p>
                 </div>
                 <div className="space-y-2">
-                  <span className="text-[9px] font-black uppercase tracking-widest text-zinc-600">Scene Vectors</span>
+                  <span className="text-[9px] font-black uppercase tracking-widest text-zinc-600">Analyse de Scène</span>
                   <p className="text-sm font-medium text-zinc-300 capitalize">{story.sceneAnalysis?.split(' ')?.[0] || 'Fiction'}</p>
                 </div>
               </div>
 
-              {/* Cinematic Preview Trigger */}
               <div className="pt-4">
                 {videoUrl ? (
-                  <div ref={videoContainerRef} className="relative aspect-video rounded-3xl overflow-hidden border border-white/10 shadow-2xl group bg-black">
-                     <video 
-                        ref={videoRef}
-                        src={videoUrl} 
-                        className="w-full h-full object-cover"
-                        autoPlay
-                        loop
-                        playsInline
-                     />
-                     {/* Video Controls Overlay */}
-                     <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity p-6 flex flex-col justify-end">
-                        <div className="flex items-center justify-between">
-                           <div className="flex items-center space-x-4">
-                              <div className="flex items-center space-x-2 bg-black/40 backdrop-blur-md rounded-xl p-1 px-3 border border-white/10">
-                                 <i className={`fa-solid ${volume === 0 ? 'fa-volume-mute' : 'fa-volume-high'} text-[10px] text-zinc-400`}></i>
-                                 <input 
-                                    type="range" 
-                                    min="0" max="1" step="0.1" 
-                                    value={volume}
-                                    onChange={(e) => setVolume(parseFloat(e.target.value))}
-                                    className="w-16 accent-blue-500 cursor-pointer"
-                                 />
-                              </div>
-                              <div className="flex bg-black/40 backdrop-blur-md rounded-xl p-1 border border-white/10">
-                                 {[0.5, 1, 1.5, 2].map(speed => (
-                                    <button 
-                                      key={speed}
-                                      onClick={() => setPlaybackSpeed(speed)}
-                                      className={`px-3 py-1.5 text-[8px] font-black uppercase rounded-lg transition-all ${playbackSpeed === speed ? 'bg-blue-600 text-white' : 'text-zinc-500'}`}
-                                    >
-                                       {speed}x
-                                    </button>
-                                 ))}
-                              </div>
-                           </div>
-                           <button 
-                            onClick={toggleFullscreen}
-                            className="w-10 h-10 rounded-xl bg-black/40 backdrop-blur-md border border-white/10 text-white flex items-center justify-center hover:bg-blue-600 transition-all"
-                           >
-                              <i className={`fa-solid ${isFullscreen ? 'fa-compress' : 'fa-expand'}`}></i>
-                           </button>
-                        </div>
-                     </div>
+                  <div className="space-y-4">
+                    <div ref={videoContainerRef} className="relative aspect-video rounded-3xl overflow-hidden border border-white/10 shadow-2xl group bg-black">
+                       <video 
+                          ref={videoRef}
+                          src={videoUrl} 
+                          className="w-full h-full object-cover"
+                          autoPlay
+                          loop
+                          playsInline
+                       />
+                       <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity p-6 flex flex-col justify-end">
+                          <div className="flex items-center justify-between">
+                             <div className="flex items-center space-x-4">
+                                <div className="flex items-center space-x-2 bg-black/40 backdrop-blur-md rounded-xl p-1 px-3 border border-white/10">
+                                   <i className={`fa-solid ${volume === 0 ? 'fa-volume-mute' : 'fa-volume-high'} text-[10px] text-zinc-400`}></i>
+                                   <input 
+                                      type="range" 
+                                      min="0" max="1" step="0.1" 
+                                      value={volume}
+                                      onChange={(e) => setVolume(parseFloat(e.target.value))}
+                                      className="w-16 accent-blue-500 cursor-pointer"
+                                   />
+                                </div>
+                             </div>
+                             <button 
+                              onClick={toggleFullscreen}
+                              className="w-10 h-10 rounded-xl bg-black/40 backdrop-blur-md border border-white/10 text-white flex items-center justify-center hover:bg-blue-600 transition-all"
+                             >
+                                <i className={`fa-solid ${isFullscreen ? 'fa-compress' : 'fa-expand'}`}></i>
+                             </button>
+                          </div>
+                       </div>
+                    </div>
+                    <button 
+                      onClick={() => triggerDownload(videoUrl, `cinematic-${Date.now()}.mp4`)}
+                      className="w-full py-4 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-indigo-600/20 hover:bg-indigo-500 transition-all flex items-center justify-center space-x-3"
+                    >
+                      <i className="fa-solid fa-download"></i>
+                      <span>Télécharger le Rendu Vidéo</span>
+                    </button>
                   </div>
                 ) : (
                   <button 
@@ -297,12 +342,12 @@ const VisualLab: React.FC<VisualLabProps> = ({ language }) => {
                     {isGeneratingVideo ? (
                       <>
                         <i className="fa-solid fa-spinner animate-spin"></i>
-                        <span>Neural Rendering...</span>
+                        <span>Rendu Cinématique en cours...</span>
                       </>
                     ) : (
                       <>
                         <i className="fa-solid fa-clapperboard group-hover:animate-bounce"></i>
-                        <span>Generate Cinematic Preview</span>
+                        <span>Générer un Preview Cinématique</span>
                       </>
                     )}
                   </button>
@@ -315,8 +360,8 @@ const VisualLab: React.FC<VisualLabProps> = ({ language }) => {
                   <i className="fa-solid fa-feather-pointed text-2xl opacity-20"></i>
                </div>
                <div className="text-center space-y-1">
-                  <p className="text-[10px] uppercase font-black tracking-[0.4em] opacity-40">Ready to ghostwrite</p>
-                  <p className="text-[9px] uppercase font-bold text-zinc-700 tracking-widest">Awaiting visual signal</p>
+                  <p className="text-[10px] uppercase font-black tracking-[0.4em] opacity-40">Ghostwriter en veille</p>
+                  <p className="text-[9px] uppercase font-bold text-zinc-700 tracking-widest">En attente de signal visuel</p>
                </div>
             </div>
           )}
